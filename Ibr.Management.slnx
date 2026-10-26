@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Ibr.Api/Ibr.Api.csproj" />
+    <Project Path="src/Ibr.Application/Ibr.Application.csproj" />
+    <Project Path="src/Ibr.Domain/Ibr.Domain.csproj" />
+    <Project Path="src/Ibr.Infrastructure/Ibr.Infrastructure.csproj" />
+    <Project Path="tests/Ibr.Tests/Ibr.Tests.csproj" />
+  </Folder>
+</Solution>
