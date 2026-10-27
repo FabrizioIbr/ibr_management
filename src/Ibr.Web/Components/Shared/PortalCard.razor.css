@@ -1,0 +1,84 @@
+.portal-card {
+    --accent: var(--ibr-blue);
+    --accent-soft: var(--ibr-blue-soft);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 260px;
+    padding: 1.5rem;
+    overflow: hidden;
+    background: var(--ibr-surface);
+    border: 1px solid var(--ibr-border);
+    border-radius: 18px;
+    box-shadow: var(--ibr-shadow);
+    cursor: pointer;
+    outline: none;
+    transition: transform .25s cubic-bezier(.2, .8, .2, 1), box-shadow .25s ease, border-color .25s ease;
+}
+
+
+/* Franja de acento superior que se expande al pasar el cursor. */
+.portal-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 64px;
+    height: 4px;
+    border-radius: 0 0 4px 0;
+    background: var(--accent);
+    transition: width .35s cubic-bezier(.2, .8, .2, 1);
+}
+
+/* Halo decorativo en la esquina. */
+.portal-card::after {
+    content: "";
+    position: absolute;
+    right: -60px;
+    bottom: -70px;
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--accent-soft) 0%, transparent 70%);
+    transition: transform .35s ease;
+    pointer-events: none;
+}
+
+.portal-card:hover, .portal-card:focus-visible {
+    transform: translateY(-4px);
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+    box-shadow: 0 18px 40px -12px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.portal-card:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+.portal-card:hover::before, .portal-card:focus-visible::before { width: 100%; border-radius: 0; }
+.portal-card:hover::after { transform: scale(1.25); }
+.portal-card > * { position: relative; z-index: 1; }
+
+.portal-card__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.portal-card__icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; background: var(--accent-soft); color: var(--accent); }
+.portal-card__icon ::deep .rz-icon { font-size: 1.6rem; }
+.portal-card__badge { padding: .3rem .65rem; border-radius: 999px; background: #ECFDF3; color: #15803D; font-size: .7rem; font-weight: 700; letter-spacing: .02em; }
+
+.portal-card__title { margin: 1.25rem 0 .4rem; color: var(--ibr-text); font-size: 1.2rem; font-weight: 750; letter-spacing: -.01em; }
+.portal-card__text { margin: 0; color: var(--ibr-text-muted); font-size: .9rem; line-height: 1.55; }
+
+.portal-card__meta { display: flex; flex-wrap: wrap; gap: .4rem; margin: 1rem 0 0; padding: 0; list-style: none; }
+.portal-card__meta li { padding: .25rem .6rem; border: 1px solid var(--ibr-border); border-radius: 8px; color: var(--ibr-text-muted); font-size: .74rem; font-weight: 600; background: #FAFBFD; }
+
+.portal-card__footer { display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: 1.25rem; color: var(--accent); font-size: .88rem; font-weight: 700; }
+.portal-card__arrow { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); transition: transform .25s cubic-bezier(.2, .8, .2, 1), background-color .25s ease, color .25s ease; }
+.portal-card__arrow ::deep .rz-icon { font-size: 1.15rem; }
+.portal-card:hover .portal-card__arrow { transform: translateX(4px); background: var(--accent); color: #fff; }
+
+.portal-card--disabled { cursor: default; }
+.portal-card--disabled:hover { transform: none; border-color: var(--ibr-border); box-shadow: var(--ibr-shadow); }
+.portal-card--disabled:hover::before { width: 64px; }
+.portal-card--disabled:hover::after { transform: none; }
+.portal-card--disabled .portal-card__icon, .portal-card--disabled .portal-card__title, .portal-card--disabled .portal-card__text { opacity: .6; }
+.portal-card--disabled .portal-card__badge { background: #F1F5F9; color: var(--ibr-text-muted); }
+.portal-card--disabled .portal-card__footer { color: var(--ibr-text-subtle); }
+.portal-card--disabled:hover .portal-card__arrow { transform: none; background: var(--accent-soft); color: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+    .portal-card, .portal-card::before, .portal-card::after, .portal-card__arrow { transition: none; }
+}

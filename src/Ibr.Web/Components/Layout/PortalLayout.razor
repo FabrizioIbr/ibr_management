@@ -1,0 +1,148 @@
+@* Layout de todas las páginas de un portal. El portal actual se resuelve desde la BD (Portals / PortalSections):
+   /portal/{PortalId} o cualquier ruta registrada en PortalSections.Route (y sus subrutas). El sidebar muestra solo
+   las secciones de ese portal y la página solo se pinta si el usuario tiene acceso al portal. *@
+@inherits LayoutComponentBase
+@using Ibr.Application.Portals
+@inject NavigationManager Navigation
+@inject IPortalService PortalService
+
+<div class="portal-shell @(navOpen ? "portal-shell--nav-open" : null)">
+    <aside class="portal-sidebar">
+        <div class="portal-sidebar__brand">
+            <a href="/dashboard"><img src="/ibr_logo.png" alt="iBr Latam" /></a>
+            <button class="portal-sidebar__close" @onclick="() => navOpen = false" aria-label="Cerrar menú"><RadzenIcon Icon="close" /></button>
+        </div>
+
+        <a class="portal-sidebar__back" href="/dashboard"><RadzenIcon Icon="arrow_back" /><span>Todos los portales</span></a>
+
+        @if (portal is not null)
+        {
+            <div class="portal-sidebar__portal" style="@PortalUi.AccentStyle(portal.ColorHex)">
+                <span class="portal-sidebar__portal-icon"><IconView Icon="@portal.Icon" /></span>
+                <span class="portal-sidebar__portal-name">@portal.Name</span>
+            </div>
+
+            <nav class="portal-nav" aria-label="@portal.Name">
+                <NavLink class="portal-nav__link" href="@portal.Href" Match="NavLinkMatch.All" @onclick="() => navOpen = false"><RadzenIcon Icon="home" /><span>Inicio</span></NavLink>
+
+                @if (portal.Sections.Count > SearchThreshold)
+                {
+                    <div class="portal-nav__search">
+                        <RadzenIcon Icon="search" />
+                        <RadzenTextBox @bind-Value="search" Immediate="true" Placeholder="Buscar sección…" aria-label="Buscar sección" />
+                    </div>
+                }
+
+                @foreach (var group in FilteredGroups)
+                {
+                    <div class="portal-nav__caption">@group.Title</div>
+                    @foreach (var section in group.Items)
+                    {
+                        @if (section.Available)
+                        {
+                            <NavLink class="portal-nav__link portal-nav__link--sub" href="@section.Route" @onclick="() => navOpen = false"><IconView Icon="@section.Icon" /><span>@section.Title</span></NavLink>
+                        }
+                        else
+                        {
+                            <span class="portal-nav__link portal-nav__link--sub portal-nav__link--soon" title="Próximamente"><IconView Icon="@section.Icon" /><span>@section.Title</span><em>Pronto</em></span>
+                        }
+                    }
+                }
+
+                @if (!FilteredGroups.Any())
+                {
+                    <p class="portal-nav__empty">@(portal.Sections.Count == 0 ? "Este portal aún no tiene secciones." : "Sin coincidencias")</p>
+                }
+            </nav>
+        }
+
+        <div class="portal-sidebar__user"><UserMenu /></div>
+    </aside>
+
+    <div class="portal-backdrop" @onclick="() => navOpen = false"></div>
+
+    <div class="portal-main">
+        <header class="portal-topbar">
+            <button class="portal-topbar__menu" @onclick="() => navOpen = true" aria-label="Abrir menú"><RadzenIcon Icon="menu" /></button>
+            <span class="portal-topbar__title">@(portal?.Name ?? "iBr Latam")</span>
+        </header>
+        <main class="portal-content">
+            @switch (state)
+            {
+                case AccessState.Allowed:
+                    <CascadingValue Value="portal">@Body</CascadingValue>
+                    break;
+                case AccessState.Loading:
+                    <div class="ibr-loading"><RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Medium" /></div>
+                    break;
+                default:
+                    <div class="ibr-card ibr-empty">
+                        <RadzenIcon Icon="@(state == AccessState.Unavailable ? "construction" : "lock")" />
+                        <strong>@Message</strong>
+                        <a href="/dashboard">Volver a los portales</a>
+                    </div>
+                    break;
+            }
+        </main>
+    </div>
+</div>
+<RadzenComponents />
+
+@code {
+    /// <summary>A partir de cuántas secciones el sidebar muestra el buscador.</summary>
+    private const int SearchThreshold = 8;
+
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = null!;
+
+    private enum AccessState { Loading, Allowed, Denied, Unavailable, NotRegistered }
+
+    private bool navOpen;
+    private string search = string.Empty;
+    private IReadOnlyList<PortalDto>? portals;
+    private PortalDto? portal;
+    private AccessState state = AccessState.Loading;
+
+    // Se ejecuta en cada navegación: con los portales ya cargados se resuelve al instante (sin parpadeo)
+    // y luego se refresca desde la BD para reflejar cambios hechos en Gestión Maestros.
+    protected override async Task OnParametersSetAsync()
+    {
+        if (portals is not null) Resolve();
+
+        var user = (await AuthState).User;
+        portals = await PortalService.GetPortalsAsync(user.GetUserId());
+        Resolve();
+    }
+
+    private void Resolve()
+    {
+        var path = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+        var match = portals!
+            .Select(candidate => (Portal: candidate, Length: candidate.MatchLength(path)))
+            .Where(candidate => candidate.Length > 0)
+            .OrderByDescending(candidate => candidate.Portal.HasAccess)
+            .ThenByDescending(candidate => candidate.Length)
+            .Select(candidate => candidate.Portal)
+            .FirstOrDefault();
+
+        if (match?.Id != portal?.Id) search = string.Empty;
+        portal = match is { HasAccess: true } ? match : null;
+        state = match switch
+        {
+            null => AccessState.NotRegistered,
+            { HasAccess: false } => AccessState.Denied,
+            { Available: false } => AccessState.Unavailable,
+            _ => AccessState.Allowed
+        };
+    }
+
+    private string Message => state switch
+    {
+        AccessState.Denied => "No tienes acceso a este portal.",
+        AccessState.Unavailable => $"{portal!.Name} está en estado «{portal.Status}». Vuelve a intentarlo más tarde.",
+        _ => "Esta página no está registrada como sección de ningún portal activo (Gestión Maestros → Secciones)."
+    };
+
+    private IEnumerable<PortalSectionGroup> FilteredGroups => portal is null ? [] : portal.Groups()
+        .Select(group => group with { Items = group.Items.Where(section => TextSearch.Matches(search, section.Title, section.Description, group.Title)).ToList() })
+        .Where(group => group.Items.Count > 0);
+}

@@ -1,0 +1,103 @@
+@* Página única de todos los catálogos: /admin/{Slug}. El acceso lo controla PortalLayout según el portal al que pertenezca la ruta (PortalSections). *@
+@page "/admin/{Slug}"
+@layout PortalLayout
+@attribute [Authorize]
+@using Ibr.Application.Portals
+@using Ibr.Application.Maestros
+@inject IMaestrosService MaestrosService
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+@inject NavigationManager Navigation
+
+@if (schema is not null)
+{
+    <PageTitle>@schema.Label · @(Portal?.Name ?? "Gestión Maestros")</PageTitle>
+
+    <nav class="ibr-breadcrumb" aria-label="Ruta">
+        <a href="@(Portal?.Href ?? "/dashboard")">@(Portal?.Name ?? "Portales")</a><RadzenIcon Icon="chevron_right" /><span>@schema.Group</span><RadzenIcon Icon="chevron_right" /><span>@schema.Label</span>
+    </nav>
+
+    <PageHeader Title="@schema.Label" Subtitle="@schema.Description">
+        <Actions>
+            <RadzenButton Text="@schema.NewText" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@(() => OpenFormAsync(null))" Disabled="@isLoading" />
+        </Actions>
+    </PageHeader>
+
+    <div class="ibr-stats">
+        <StatCard Label="Total registros" Value="@Count(records.Count)" Icon="@schema.Icon" />
+        @if (schema.StatusField is { } status)
+        {
+            var active = records.Count(record => record[status] is true);
+            <StatCard Label="Activos" Value="@Count(active)" Icon="check_circle" Tone="success" />
+            <StatCard Label="Inactivos" Value="@Count(records.Count - active)" Icon="block" Tone="muted" />
+        }
+    </div>
+
+    <SchemaDataGrid Schema="@schema" Records="@records" Loading="@isLoading" OnEdit="@OpenFormAsync" OnDelete="@DeleteAsync" />
+}
+
+@code {
+    [Parameter] public string Slug { get; set; } = string.Empty;
+    [CascadingParameter] private PortalDto? Portal { get; set; }
+
+    private CatalogSchema? schema;
+    private IReadOnlyList<CatalogRow> records = [];
+    private bool isLoading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (schema?.Slug == Slug) return;
+
+        schema = MaestrosService.FindCatalog(Slug);
+        if (schema is null)
+        {
+            Navigation.NavigateTo(Portal?.Href ?? "/dashboard", replace: true);
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        records = await MaestrosService.GetRecordsAsync(schema!.Slug);
+        isLoading = false;
+    }
+
+    private async Task OpenFormAsync(CatalogRow? record)
+    {
+        var lookups = await MaestrosService.GetLookupsAsync(schema!.Slug);
+        var saved = await SchemaForm.OpenAsync(DialogService, schema, record, lookups,
+            values => MaestrosService.SaveAsync(schema.Slug, values));
+
+        if (saved)
+        {
+            NotificationService.Notify(NotificationSeverity.Success, record is null ? schema.CreatedText : "Cambios guardados");
+            await LoadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(CatalogRow record)
+    {
+        var confirmed = await DialogService.Confirm(
+            $"Se eliminará «{record[CatalogSchema.TitleKey]}». Esta acción no se puede deshacer.",
+            $"Eliminar {schema!.Singular}",
+            new ConfirmOptions { OkButtonText = "Eliminar", CancelButtonText = "Cancelar", CssClass = "ibr-dialog" });
+        if (confirmed != true) return;
+
+        var result = await MaestrosService.DeleteAsync(schema.Slug, record[schema.KeyField]!);
+        if (result.Succeeded)
+        {
+            NotificationService.Notify(NotificationSeverity.Success, "Registro eliminado");
+            await LoadAsync();
+        }
+        else
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "No se pudo eliminar", result.Error ?? string.Empty);
+        }
+    }
+
+    private string Count(int value) => isLoading ? "—" : value.ToString();
+
+}

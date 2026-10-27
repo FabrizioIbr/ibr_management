@@ -54,9 +54,9 @@ public sealed class UserServiceTests : IAsyncLifetime
         var result = await service.GetActiveAsync();
 
         var user = Assert.Single(result);
-        Assert.Equal("Ada", user.FirstName);
-        Assert.Equal("Lovelace", user.LastName);
+        Assert.Equal(1, user.Id);
+        Assert.Equal("Ada Lovelace", user.FullName);
         Assert.Equal("ada@example.test", user.Email);
-        Assert.True(user.IsActive);
+        Assert.Equal("Developer", user.PositionName);
     }
 }

@@ -1,0 +1,87 @@
+@* Inicio genérico de cualquier portal de la tabla Portals: /portal/{PortalId}. Las tarjetas son sus PortalSections.
+   El acceso y el portal actual los resuelve PortalLayout, que lo pasa como CascadingParameter. *@
+@page "/portal/{PortalId:int}"
+@layout PortalLayout
+@attribute [Authorize]
+@using Ibr.Application.Portals
+
+@if (Portal is not null)
+{
+    <PageTitle>@Portal.Name</PageTitle>
+
+    <PageHeader Eyebrow="Portal" Title="@Portal.Name" Subtitle="@Portal.Description" />
+
+    @if (Portal.Sections.Count > 6)
+    {
+        <div class="ibr-card ibr-directory-search">
+            <div class="ibr-search ibr-search--lg">
+                <RadzenIcon Icon="search" />
+                <RadzenTextBox @bind-Value="search" Immediate="true" Placeholder="Buscar por nombre, grupo o descripción…" aria-label="Buscar sección" />
+            </div>
+            <span class="ibr-card__toolbar-meta">@FilteredGroups.Sum(group => group.Items.Count) de @Portal.Sections.Count</span>
+        </div>
+    }
+
+    @if (Portal.Sections.Count == 0)
+    {
+        <div class="ibr-card ibr-empty">
+            <RadzenIcon Icon="view_list" />
+            <strong>Este portal aún no tiene secciones</strong>
+            <span>Regístralas en Gestión Maestros → Secciones.</span>
+        </div>
+    }
+    else if (!FilteredGroups.Any())
+    {
+        <div class="ibr-card ibr-empty">
+            <RadzenIcon Icon="search_off" />
+            <strong>No hay secciones que coincidan con «@search»</strong>
+        </div>
+    }
+
+    @foreach (var group in FilteredGroups)
+    {
+        <section class="ibr-directory-group">
+            <h2 class="ibr-section-title">@group.Title <span>@group.Items.Count</span></h2>
+            <div class="ibr-tiles">
+                @foreach (var section in group.Items)
+                {
+                    @if (section.Available)
+                    {
+                        <a class="ibr-tile" href="@section.Route">
+                            <span class="ibr-tile__icon"><IconView Icon="@section.Icon" /></span>
+                            <span class="ibr-tile__body"><strong>@section.Title</strong><small>@section.Description</small></span>
+                            <RadzenIcon Icon="chevron_right" class="ibr-tile__chevron" />
+                        </a>
+                    }
+                    else
+                    {
+                        <div class="ibr-tile ibr-tile--soon" aria-disabled="true">
+                            <span class="ibr-tile__icon"><IconView Icon="@section.Icon" /></span>
+                            <span class="ibr-tile__body"><strong>@section.Title</strong><small>@section.Description</small></span>
+                            <span class="ibr-tile__tag">Próximamente</span>
+                        </div>
+                    }
+                }
+            </div>
+        </section>
+    }
+}
+
+@code {
+    [Parameter] public int PortalId { get; set; }
+    [CascadingParameter] private PortalDto? Portal { get; set; }
+
+    private string search = string.Empty;
+    private int? shownPortalId;
+
+    protected override void OnParametersSet()
+    {
+        if (Portal?.Id == shownPortalId) return;
+        shownPortalId = Portal?.Id;
+        search = string.Empty;
+    }
+
+    private IEnumerable<PortalSectionGroup> FilteredGroups => Portal is null ? [] : Portal.Groups()
+        .Select(group => group with { Items = group.Items.Where(section => TextSearch.Matches(search, section.Title, section.Description, group.Title)).ToList() })
+        .Where(group => group.Items.Count > 0);
+}

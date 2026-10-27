@@ -1,0 +1,149 @@
+@page "/login"
+@layout EmptyLayout
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject NotificationService NotificationService
+
+<PageTitle>Iniciar sesión</PageTitle>
+
+<main class="login-shell login-split-shell">
+    <aside class="login-brand-panel">
+        <div class="login-brand-panel-glow login-brand-panel-glow-top"></div>
+        <div class="login-brand-panel-glow login-brand-panel-glow-bottom"></div>
+
+        <div class="login-brand-panel-logo">
+            <img src="/ibr_logo.png" alt="iBr Latam" />
+            <p>Gestión empresarial inteligente</p>
+        </div>
+
+        <div class="login-brand-panel-copy">
+            <h2>Todo tu negocio,<br />en un solo lugar.</h2>
+            <p>Administra usuarios, roles y operaciones con una experiencia clara y segura.</p>
+            <ul>
+                <li><span>01</span> Operaciones centralizadas</li>
+                <li><span>02</span> Información siempre disponible</li>
+                <li><span>03</span> Control para cada equipo</li>
+            </ul>
+        </div>
+
+        <p class="login-brand-panel-footer">© 2026 iBr Latam · Uso exclusivo autorizado</p>
+    </aside>
+
+    <section class="login-form-panel">
+        <div class="login-card">
+            <div class="login-mobile-brand">
+                <img src="/ibr_logo.png" alt="iBr Latam" />
+            </div>
+
+            <div class="login-heading">
+                <p class="login-kicker">PORTAL CORPORATIVO</p>
+                <h1>Bienvenido</h1>
+                <p>Ingresa tus credenciales para continuar</p>
+            </div>
+
+            @if (_error is not null)
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Danger">@_error</RadzenAlert>
+            }
+
+            <div class="login-form">
+                <div class="login-field">
+                    <label for="email">Usuario</label>
+                    <div class="login-suffix-group">
+                        <RadzenTextBox @bind-Value="_emailLocal"
+                                       Name="Email"
+                                       InputId="email"
+                                       Placeholder="nombre.apellido"
+                                       Class="login-input login-input-suffix"
+                                       Style="width:100%" />
+                        <span class="login-suffix">&#64;ibr.com.pe</span>
+                    </div>
+                </div>
+
+                <div class="login-field">
+                    <div class="login-label-row">
+                        <label for="password">Contraseña</label>
+                        <a href="#" @onclick:preventDefault="true">¿La olvidaste?</a>
+                    </div>
+                    <div class="login-password-wrap">
+                        <input @bind="_password"
+                               id="password"
+                               name="Password"
+                               type="@(_showPassword ? "text" : "password")"
+                               placeholder="Ingresa tu contraseña"
+                               class="login-input login-input-password" />
+                        <button type="button"
+                                class="login-password-toggle"
+                                aria-label="@(_showPassword ? "Ocultar contraseña" : "Mostrar contraseña")"
+                                @onclick="() => _showPassword = !_showPassword">
+                            <RadzenIcon Icon="@(_showPassword ? "visibility_off" : "visibility")" />
+                        </button>
+                    </div>
+                </div>
+
+                <label class="login-check">
+                    <input type="checkbox" />
+                    <span>Recordarme en este dispositivo</span>
+                </label>
+
+                <RadzenButton Text="Iniciar sesión"
+                              ButtonStyle="ButtonStyle.Primary"
+                              Click="LoginAsync"
+                              Class="login-submit"
+                              Style="width:100%" />
+            </div>
+
+            <p class="login-footer">¿No puedes acceder? Contacta al administrador.</p>
+        </div>
+    </section>
+</main>
+
+@code {
+    private string _emailLocal = string.Empty;
+    private string _password = string.Empty;
+    private string? _error;
+    private bool _showPassword;
+
+    private string Email => string.IsNullOrWhiteSpace(_emailLocal) ? string.Empty : $"{_emailLocal.Trim()}@ibr.com.pe";
+
+    private async Task LoginAsync()
+    {
+        _error = null;
+
+        if (string.IsNullOrWhiteSpace(_emailLocal) || string.IsNullOrWhiteSpace(_password))
+        {
+            _error = "Ingresa tu usuario y contraseña.";
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Error,
+                Summary = "Error al iniciar sesión",
+                Detail = "Ingresa tu usuario y contraseña.",
+                Duration = 4000
+            });
+            return;
+        }
+
+        var result = await JS.InvokeAsync<LoginResult>("ibrAuth.login", Email, _password);
+        if (result?.Ok == true)
+        {
+            Navigation.NavigateTo("/dashboard?login=success", forceLoad: true);
+            return;
+        }
+
+        var reason = string.IsNullOrWhiteSpace(result?.Message) ? "Las credenciales no son válidas." : result.Message;
+        _error = reason;
+        NotificationService.Notify(new NotificationMessage
+        {
+            Severity = NotificationSeverity.Error,
+            Summary = "No se pudo iniciar sesión",
+            Detail = reason,
+            Duration = 5000
+        });
+    }
+
+    private class LoginResult
+    {
+        public bool Ok { get; set; }
+        public string? Message { get; set; }
+    }
+}

@@ -1,0 +1,134 @@
+@* Grid estándar del portal: tarjeta + buscador + RadzenDataGrid con columnas generadas desde el schema. *@
+@using System.Globalization
+@using Ibr.Application.Maestros
+
+<section class="ibr-card ibr-card--flush">
+    <div class="ibr-card__toolbar">
+        <div class="ibr-search">
+            <RadzenIcon Icon="search" />
+            <RadzenTextBox @bind-Value="search" Immediate="true" Placeholder="@($"Buscar en {Schema.Label.ToLowerInvariant()}…")" aria-label="Buscar registros" />
+        </div>
+        <span class="ibr-card__toolbar-meta">@Filtered.Count() de @Records.Count registros</span>
+    </div>
+
+    @if (Loading)
+    {
+        <div class="ibr-loading"><RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Medium" /></div>
+    }
+    else
+    {
+        <RadzenDataGrid TItem="CatalogRow" Data="@Filtered" AllowPaging="true" AllowSorting="true" PageSize="@PageSize"
+                        PagerHorizontalAlign="HorizontalAlign.Right" ShowPagingSummary="true" PagingSummaryFormat="Página {0} de {1}"
+                        RowDoubleClick="@(args => OnEdit.InvokeAsync(args.Data))">
+            <EmptyTemplate>
+                <div class="ibr-empty">
+                    <RadzenIcon Icon="inventory_2" />
+                    <strong>Sin resultados</strong>
+                    <span>@(string.IsNullOrWhiteSpace(search) ? "Aún no hay registros. Crea el primero con el botón superior." : "Ningún registro coincide con la búsqueda.")</span>
+                </div>
+            </EmptyTemplate>
+            <Columns>
+                <RadzenDataGridColumn TItem="CatalogRow" Title="@Schema.TitleLabel" MinWidth="220px"
+                                      Property="@PropertyAccess.GetDynamicPropertyExpression(CatalogSchema.TitleKey, typeof(string))">
+                    <Template Context="row">
+                        <div class="ibr-cell-primary">
+                            <Avatar Name="@(row[CatalogSchema.TitleKey] as string)" />
+                            <span class="ibr-cell-primary__name">@row[CatalogSchema.TitleKey]</span>
+                        </div>
+                    </Template>
+                </RadzenDataGridColumn>
+
+                @foreach (var field in Schema.Fields.Where(field => field.ShowInGrid && !field.IsKey))
+                {
+                    <RadzenDataGridColumn TItem="CatalogRow" Title="@field.Label"
+                                          Property="@PropertyAccess.GetDynamicPropertyExpression(field.DisplayKey, field.DisplayType)"
+                                          Width="@(field.Kind == FieldKind.Boolean ? "130px" : null)">
+                        <Template Context="row">@RenderCell(field, row)</Template>
+                    </RadzenDataGridColumn>
+                }
+
+                <RadzenDataGridColumn TItem="CatalogRow" Title="" Width="104px" Sortable="false" TextAlign="TextAlign.Right">
+                    <Template Context="row">
+                        <div class="ibr-row-actions">
+                            <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small"
+                                          title="Editar" Click="@(() => OnEdit.InvokeAsync(row))" />
+                            <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Text" Size="ButtonSize.Small"
+                                          title="Eliminar" Click="@(() => OnDelete.InvokeAsync(row))" />
+                        </div>
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public CatalogSchema Schema { get; set; } = null!;
+    [Parameter, EditorRequired] public IReadOnlyList<CatalogRow> Records { get; set; } = [];
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public int PageSize { get; set; } = 10;
+    [Parameter] public EventCallback<CatalogRow> OnEdit { get; set; }
+    [Parameter] public EventCallback<CatalogRow> OnDelete { get; set; }
+
+    private string search = string.Empty;
+    private string? schemaSlug;
+
+    protected override void OnParametersSet()
+    {
+        if (schemaSlug != Schema.Slug)
+        {
+            schemaSlug = Schema.Slug;
+            search = string.Empty;
+        }
+    }
+
+    private IEnumerable<CatalogRow> Filtered => string.IsNullOrWhiteSpace(search)
+        ? Records
+        : Records.Where(row => SearchableKeys.Any(key =>
+            row.TryGetValue(key, out var value) && value?.ToString()?.Contains(search, StringComparison.OrdinalIgnoreCase) == true));
+
+    private IEnumerable<string> SearchableKeys => Schema.Fields
+        .Where(column => column.ShowInGrid && column.Kind is not (FieldKind.Boolean or FieldKind.Password))
+        .Select(column => column.DisplayKey)
+        .Prepend(CatalogSchema.TitleKey);
+
+    private RenderFragment RenderCell(FieldSchema field, CatalogRow row) => builder =>
+    {
+        row.TryGetValue(field.DisplayKey, out var value);
+        switch (field.Kind)
+        {
+            case FieldKind.Boolean when field.Name == Schema.StatusField:
+                builder.OpenComponent<StatusBadge>(0);
+                builder.AddAttribute(1, nameof(StatusBadge.Status), value is true ? "Activo" : "Inactivo");
+                builder.CloseComponent();
+                break;
+            case FieldKind.Boolean:
+                builder.AddContent(2, value is true ? "Sí" : "No");
+                break;
+            case FieldKind.MultiLookup when value is string text && text.Length > 0:
+                builder.OpenElement(3, "span");
+                builder.AddAttribute(4, "class", "ibr-cell-tags");
+                builder.AddAttribute(5, "title", text);
+                builder.AddContent(6, text);
+                builder.CloseElement();
+                break;
+            default:
+                builder.OpenElement(7, "span");
+                builder.AddAttribute(8, "class", "ibr-text-muted");
+                builder.AddContent(9, Format(field, value));
+                builder.CloseElement();
+                break;
+        }
+    };
+
+    private static string Format(FieldSchema field, object? value) => value switch
+    {
+        null => "—",
+        string text when text.Length == 0 => "—",
+        DateTime date when field.Kind == FieldKind.Date => date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
+        DateTime date => date.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture),
+        DateOnly date => date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
+        decimal number => number.ToString("N2", CultureInfo.GetCultureInfo("es-PE")),
+        _ => value.ToString() ?? "—"
+    };
+}

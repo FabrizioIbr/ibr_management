@@ -1,0 +1,9 @@
+.hub-shell { min-height: 100vh; background: var(--ibr-bg); }
+.hub-topbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .85rem max(1rem, calc((100% - 1200px) / 2 + 2.5rem)); background: rgba(255, 255, 255, .85); border-bottom: 1px solid var(--ibr-border); backdrop-filter: blur(10px); }
+.hub-topbar__brand img { width: 104px; height: auto; display: block; }
+.hub-content { max-width: 1200px; margin: 0 auto; padding: 2.5rem 2.5rem 4rem; }
+
+@media (max-width: 760px) {
+    .hub-content { padding: 1.5rem 1rem 3rem; }
+    .hub-topbar ::deep .user-menu__name { display: none; }
+}

@@ -1,0 +1,130 @@
+@* Formulario popup estándar. Se abre con SchemaForm.OpenAsync(...); nunca directamente. *@
+@using Ibr.Application.Maestros
+@inject DialogService DialogService
+
+<RadzenTemplateForm TItem="CatalogRow" Data="@Values" Submit="@SubmitAsync" class="ibr-form">
+    @if (error is not null)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Danger" Variant="Variant.Flat" Shade="Shade.Lighter" AllowClose="false" class="ibr-form__alert">@error</RadzenAlert>
+    }
+
+    <div class="ibr-form__grid">
+        @foreach (var field in Schema.Fields.Where(field => field.ShowInForm && !(field.IsKey && !IsNew)))
+        {
+            var required = field.Required || field.RequiredOnCreate && IsNew;
+            <div class="ibr-field @(IsWide(field) ? "ibr-field--wide" : null)">
+                @if (field.Kind == FieldKind.Boolean)
+                {
+                    <label class="ibr-field__switch">
+                        <RadzenSwitch Name="@field.Name" Value="@(Values.TryGetValue(field.Name, out var on) && on is true)" ValueChanged="@((bool value) => Values[field.Name] = value)" />
+                        <span>@field.Label</span>
+                    </label>
+                }
+                else
+                {
+                    <label class="ibr-field__label" for="@field.Name">@field.Label@if (required) {<span class="ibr-field__required" aria-hidden="true"> *</span>}</label>
+                    @RenderInput(field)
+                    @if (required)
+                    {
+                        <RadzenRequiredValidator Component="@field.Name" Text="@($"{field.Label} es obligatorio.")" Popup="false" />
+                    }
+                    @if (field.Kind == FieldKind.Email)
+                    {
+                        <RadzenEmailValidator Component="@field.Name" Text="Ingresa un correo válido." Popup="false" />
+                    }
+                    @if (Hint(field) is { } hint)
+                    {
+                        <small class="ibr-field__hint">@hint</small>
+                    }
+                }
+            </div>
+        }
+    </div>
+
+    <div class="ibr-form__footer">
+        <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Click="@(() => DialogService.Close(false))" Disabled="@saving" />
+        <RadzenButton ButtonType="ButtonType.Submit" Text="@(IsNew ? "Crear" : "Guardar cambios")" Icon="check" ButtonStyle="ButtonStyle.Primary"
+                      IsBusy="@saving" BusyText="Guardando…" />
+    </div>
+</RadzenTemplateForm>
+
+@code {
+    [Parameter, EditorRequired] public CatalogSchema Schema { get; set; } = null!;
+    [Parameter, EditorRequired] public CatalogRow Values { get; set; } = null!;
+    [Parameter] public IReadOnlyDictionary<string, IReadOnlyList<LookupOption>> Lookups { get; set; } = new Dictionary<string, IReadOnlyList<LookupOption>>();
+    [Parameter] public bool IsNew { get; set; }
+    [Parameter, EditorRequired] public Func<CatalogRow, Task<SaveResult>> Save { get; set; } = null!;
+
+    private bool saving;
+    private string? error;
+
+    private async Task SubmitAsync()
+    {
+        saving = true;
+        error = null;
+        var result = await Save(Values);
+        saving = false;
+
+        if (result.Succeeded)
+        {
+            DialogService.Close(true);
+        }
+        else
+        {
+            error = result.Error;
+        }
+    }
+
+    private RenderFragment RenderInput(FieldSchema field) => field.Kind switch
+    {
+        FieldKind.LongText => @<RadzenTextArea Name="@field.Name" id="@field.Name" Rows="3" MaxLength="@ToLong(field.MaxLength)" Style="width:100%"
+                                               Value="@(Get(field) as string)" ValueChanged="@((string value) => Values[field.Name] = value)" />,
+        FieldKind.Password => @<RadzenPassword Name="@field.Name" id="@field.Name" Style="width:100%" AutoCompleteType="AutoCompleteType.NewPassword"
+                                               Placeholder="@(IsNew ? null : "Déjalo vacío para mantener la actual")"
+                                               Value="@(Get(field) as string)" ValueChanged="@((string value) => Values[field.Name] = value)" />,
+        FieldKind.Integer => @<RadzenNumeric TValue="long?" Name="@field.Name" id="@field.Name" Style="width:100%"
+                                             Value="@(Get(field) is { } number ? Convert.ToInt64(number) : null)" ValueChanged="@((long? value) => Values[field.Name] = value)" />,
+        FieldKind.Decimal => @<RadzenNumeric TValue="decimal?" Name="@field.Name" id="@field.Name" Style="width:100%"
+                                             Value="@(Get(field) is { } number ? Convert.ToDecimal(number) : null)" ValueChanged="@((decimal? value) => Values[field.Name] = value)" />,
+        FieldKind.Date or FieldKind.DateTime => @<RadzenDatePicker TValue="DateTime?" Name="@field.Name" id="@field.Name" Style="width:100%"
+                                                                   ShowTime="@(field.Kind == FieldKind.DateTime)" DateFormat="@(field.Kind == FieldKind.DateTime ? "dd/MM/yyyy HH:mm" : "dd/MM/yyyy")"
+                                                                   Value="@(Get(field) switch { DateOnly d => d.ToDateTime(TimeOnly.MinValue), DateTime d => d, _ => (DateTime?)null })"
+                                                                   ValueChanged="@((DateTime? value) => Values[field.Name] = value)" />,
+        FieldKind.Lookup => @<RadzenDropDown TValue="object" Name="@field.Name" id="@field.Name" Style="width:100%"
+                                             Data="@Options(field)" TextProperty="@nameof(LookupOption.Text)" ValueProperty="@nameof(LookupOption.Value)"
+                                             AllowFiltering="true" FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive" AllowClear="@(!field.Required)"
+                                             Placeholder="Selecciona…" Value="@Get(field)" ValueChanged="@((object value) => Values[field.Name] = value)" />,
+        FieldKind.Choice => @<RadzenDropDown TValue="string" Name="@field.Name" id="@field.Name" Style="width:100%" Data="@field.Options"
+                                             AllowClear="@(!field.Required)" Placeholder="Selecciona…"
+                                             Value="@ChoiceValue(field)" ValueChanged="@((string value) => Values[field.Name] = value)" />,
+        FieldKind.MultiLookup => @<RadzenDropDown TValue="IEnumerable<object>" Name="@field.Name" id="@field.Name" Style="width:100%"
+                                                  Data="@Options(field)" TextProperty="@nameof(LookupOption.Text)" ValueProperty="@nameof(LookupOption.Value)"
+                                                  Multiple="true" Chips="true" AllowFiltering="true" FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive" AllowClear="true"
+                                                  Placeholder="Selecciona uno o varios…" SelectAllText="Seleccionar todos"
+                                                  Value="@(Get(field) as IEnumerable<object>)" ValueChanged="@((IEnumerable<object> value) => Values[field.Name] = value?.ToList())" />,
+        _ => @<RadzenTextBox Name="@field.Name" id="@field.Name" MaxLength="@ToLong(field.MaxLength)" Style="width:100%"
+                             autocomplete="@(field.Kind == FieldKind.Email ? "email" : "off")"
+                             Value="@(Get(field) as string)" ValueChanged="@((string value) => Values[field.Name] = value)" />
+    };
+
+    private object? Get(FieldSchema field) => Values.TryGetValue(field.Name, out var value) ? value : null;
+
+    // Valores guardados con otra capitalización o sin tildes ("DISPONIBLE") se muestran como su opción.
+    private string? ChoiceValue(FieldSchema field) => Get(field)?.ToString() is { } value
+        ? field.Options?.FirstOrDefault(option => string.Compare(option, value.Trim(), System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.CompareOptions.IgnoreCase | System.Globalization.CompareOptions.IgnoreNonSpace) == 0) ?? value
+        : null;
+
+    private IReadOnlyList<LookupOption> Options(FieldSchema field) => Lookups.GetValueOrDefault(field.Name) ?? [];
+
+    private static long? ToLong(int? value) => value;
+
+    private static bool IsWide(FieldSchema field) => field.Kind is FieldKind.LongText or FieldKind.MultiLookup;
+
+    private string? Hint(FieldSchema field) => field.Kind switch
+    {
+        FieldKind.Password when !IsNew => null,
+        FieldKind.Text or FieldKind.Email or FieldKind.LongText when field.MaxLength is { } max => $"Máximo {max} caracteres.",
+        _ => null
+    };
+}

@@ -1,0 +1,12 @@
+<span class="ibr-badge ibr-badge--@Variant">@Status</span>
+
+@code {
+    [Parameter, EditorRequired] public string Status { get; set; } = string.Empty;
+
+    private string Variant => Status.Trim().ToLowerInvariant() switch
+    {
+        "activo" or "active" or "aprobado" => "success",
+        "rechazado" or "bloqueado" or "error" => "danger",
+        _ => "neutral"
+    };
+}

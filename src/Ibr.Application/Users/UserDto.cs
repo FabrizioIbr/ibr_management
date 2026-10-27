@@ -1,9 +1,7 @@
 namespace Ibr.Application.Users;
 
 public sealed record UserDto(
-    int UserId,
-    string FirstName,
-    string LastName,
+    int Id,
+    string FullName,
     string Email,
-    int PositionId,
-    bool IsActive);
+    string PositionName);

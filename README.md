@@ -12,6 +12,10 @@ API de gestión de usuarios basada en .NET 10, ASP.NET Core, Entity Framework Co
 
 Las tablas puente `UserRoles` y `RolePermissions` son relaciones many-to-many puras y se configuran con `UsingEntity` sin crear entidades CLR para ellas.
 
+## Interfaz web
+
+`src/Ibr.Web` (Blazor Server + Radzen) sigue el estándar de [docs/ui-standards.md](docs/ui-standards.md): grid `SchemaDataGrid`, formulario popup `SchemaForm`, `PortalLayout`. Los portales (tarjeta del Dashboard + sidebar propio) y sus secciones se definen en las tablas `Portals`, `PortalSections` y `UserPortals`, administradas desde Gestión Maestros; las tablas maestras se publican registrándolas en `src/Ibr.Infrastructure/Maestros/MaestrosCatalogRegistry.cs`. Las instrucciones para asistentes de IA están en [AGENTS.md](AGENTS.md).
+
 ## Ejecutar localmente
 
 Requisitos: .NET SDK 10.

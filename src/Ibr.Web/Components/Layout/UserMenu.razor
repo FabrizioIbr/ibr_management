@@ -1,0 +1,22 @@
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+<AuthorizeView>
+    <Authorized>
+        <div class="user-menu">
+            <Avatar Name="@context.User.Identity?.Name" />
+            <div class="user-menu__info">
+                <span class="user-menu__name">@context.User.Identity?.Name</span>
+                <button class="user-menu__logout" @onclick="LogoutAsync">Cerrar sesión</button>
+            </div>
+        </div>
+    </Authorized>
+</AuthorizeView>
+
+@code {
+    private async Task LogoutAsync()
+    {
+        await JS.InvokeVoidAsync("ibrAuth.logout");
+        Navigation.NavigateTo("/login", forceLoad: true);
+    }
+}

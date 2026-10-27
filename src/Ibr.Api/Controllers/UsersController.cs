@@ -1,9 +1,11 @@
 using Ibr.Application.Users;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Ibr.Api.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/users")]
 public sealed class UsersController(IUserService users) : ControllerBase
 {

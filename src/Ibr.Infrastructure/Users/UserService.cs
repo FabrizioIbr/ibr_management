@@ -16,11 +16,9 @@ public sealed class UserService(IbrDbContext dbContext) : IUserService
             .ThenBy(user => user.FirstName)
             .Select(user => new UserDto(
                 user.UserId,
-                user.FirstName,
-                user.LastName,
+                user.FirstName + " " + user.LastName,
                 user.Email,
-                user.PositionId,
-                user.IsActive ?? false))
+                user.Position.PositionName))
             .ToListAsync(cancellationToken);
     }
 }

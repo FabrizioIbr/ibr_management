@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ibr.Application\Ibr.Application.csproj" />
+    <ProjectReference Include="..\Ibr.Infrastructure\Ibr.Infrastructure.csproj" />
+    <ProjectReference Include="..\Ibr.Api\Ibr.Api.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.14" />
+    <PackageReference Include="Radzen.Blazor" Version="12.1.7" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <UserSecretsId>265b7c5a-23a4-4628-9403-f7536c49a56c</UserSecretsId>
+  </PropertyGroup>
+
+</Project>

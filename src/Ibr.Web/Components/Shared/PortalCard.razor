@@ -1,0 +1,53 @@
+@* Tarjeta de acceso a un portal/módulo del Dashboard. *@
+@inject NavigationManager Navigation
+
+<article class="portal-card @(Disabled ? "portal-card--disabled" : null)" style="@PortalUi.AccentStyle(Color)"
+         tabindex="@(Disabled ? -1 : 0)" role="link" aria-disabled="@Disabled.ToString().ToLowerInvariant()"
+         @onclick="Go" @onkeydown="OnKeyDown">
+    <div class="portal-card__top">
+        <span class="portal-card__icon"><IconView Icon="@Icon" /></span>
+        <span class="portal-card__badge">@Badge</span>
+    </div>
+
+    <h3 class="portal-card__title">@Title</h3>
+    <p class="portal-card__text">@Description</p>
+
+    @if (Meta is { Count: > 0 })
+    {
+        <ul class="portal-card__meta">
+            @foreach (var item in Meta)
+            {
+                <li>@item</li>
+            }
+        </ul>
+    }
+
+    <div class="portal-card__footer">
+        <span>@ActionText</span>
+        <span class="portal-card__arrow"><RadzenIcon Icon="@(Disabled ? "lock" : "arrow_forward")" /></span>
+    </div>
+</article>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Description { get; set; } = string.Empty;
+    /// <summary>Nombre Material o código SVG.</summary>
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public string? Href { get; set; }
+    [Parameter] public string Badge { get; set; } = "Disponible";
+    [Parameter] public string ActionText { get; set; } = "Ingresar";
+    [Parameter] public IReadOnlyList<string>? Meta { get; set; }
+    /// <summary>Color de acento en hex (#RRGGBB). Inválido o vacío = azul de la marca.</summary>
+    [Parameter] public string? Color { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    private void Go()
+    {
+        if (!Disabled && Href is not null) Navigation.NavigateTo(Href);
+    }
+
+    private void OnKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key is "Enter" or " ") Go();
+    }
+}

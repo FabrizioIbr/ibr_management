@@ -1,0 +1,21 @@
+@* Icono guardado en BD: nombre de Material Symbols ("work") o código SVG (p. ej. Tabler). El SVG se valida antes de pintarlo. *@
+@if (svg is { } markup)
+{
+    <span class="rz-icon ibr-svg-icon" aria-hidden="true">@markup</span>
+}
+else
+{
+    <RadzenIcon Icon="@(string.IsNullOrWhiteSpace(Icon) || IsMarkup ? Fallback : Icon.Trim())" />
+}
+
+@code {
+    [Parameter] public string? Icon { get; set; }
+    /// <summary>Icono Material si <see cref="Icon"/> está vacío o es un SVG no permitido.</summary>
+    [Parameter] public string Fallback { get; set; } = "apps";
+
+    private MarkupString? svg;
+
+    private bool IsMarkup => Icon?.TrimStart().StartsWith('<') == true;
+
+    protected override void OnParametersSet() => svg = SvgIcon.Sanitize(Icon);
+}

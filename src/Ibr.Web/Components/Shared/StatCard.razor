@@ -1,0 +1,15 @@
+<div class="ibr-card ibr-stat">
+    <div class="ibr-stat__icon @(string.IsNullOrEmpty(Tone) ? null : $"ibr-stat__icon--{Tone}")"><RadzenIcon Icon="@Icon" /></div>
+    <div>
+        <div class="ibr-stat__value">@Value</div>
+        <div class="ibr-stat__label">@Label</div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Value { get; set; } = string.Empty;
+    [Parameter] public string Icon { get; set; } = "insights";
+    /// <summary>Opcional: "success" o "muted". Vacío usa el azul de marca.</summary>
+    [Parameter] public string? Tone { get; set; }
+}

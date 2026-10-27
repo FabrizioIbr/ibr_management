@@ -1,0 +1,5 @@
+.user-menu { display: flex; align-items: center; gap: .75rem; min-width: 0; }
+.user-menu__info { display: grid; min-width: 0; }
+.user-menu__name { color: var(--ibr-text); font-size: .85rem; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-menu__logout { justify-self: start; padding: 0; border: 0; background: none; color: var(--ibr-text-muted); font-size: .78rem; cursor: pointer; }
+.user-menu__logout:hover { color: var(--ibr-blue); text-decoration: underline; }

@@ -1,0 +1,75 @@
+@* Selector de portales. Las tarjetas salen de la tabla Portals (Gestión Maestros → Portales): no agregues tarjetas a mano. *@
+@page "/dashboard"
+@layout HubLayout
+@attribute [Authorize]
+@using Ibr.Application.Portals
+@inject NotificationService NotificationService
+@inject IPortalService PortalService
+
+<PageTitle>Portal Dashboard</PageTitle>
+
+<PageHeader Eyebrow="Centro de control" Title="@($"¡Hola, {firstName}!")" Subtitle="Selecciona un portal para comenzar tu jornada." />
+
+@if (portals is null)
+{
+    <div class="ibr-loading"><RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Medium" /></div>
+}
+else if (portals.Count == 0)
+{
+    <div class="ibr-card ibr-empty">
+        <RadzenIcon Icon="dashboard" />
+        <strong>Aún no tienes portales asignados</strong>
+        <span>Pide a un administrador que te dé acceso.</span>
+    </div>
+}
+else
+{
+    <h2 class="ibr-section-title">Mis portales de trabajo <span>@portals.Count</span></h2>
+    <div class="ibr-card-grid">
+        @foreach (var portal in portals)
+        {
+            <PortalCard Title="@portal.Name" Description="@(portal.Description ?? string.Empty)" Icon="@portal.Icon" Color="@portal.ColorHex"
+                        Href="@portal.Href" Meta="@Meta(portal)" Badge="@portal.Status" Disabled="@(!portal.Available)"
+                        ActionText="@(portal.Available ? "Ingresar al portal" : "No disponible por ahora")" />
+        }
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "login")] public string? LoginStatus { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = null!;
+
+    private bool _toastShown;
+    private string firstName = "de nuevo";
+    private List<PortalDto>? portals;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthState).User;
+        firstName = user.Identity?.Name?.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? firstName;
+
+        portals = (await PortalService.GetPortalsAsync(user.GetUserId()))
+            .Where(portal => portal.HasAccess)
+            .ToList();
+    }
+
+    private static IReadOnlyList<string> Meta(PortalDto portal)
+    {
+        var total = portal.Sections.Count;
+        var available = portal.Sections.Count(section => section.Available);
+        var meta = new List<string> { $"{total} {(total == 1 ? "sección" : "secciones")}" };
+        if (available < total) meta.Add(available == 0 ? "En construcción" : $"{total - available} próximamente");
+        if (portal.Restricted) meta.Add("Acceso restringido");
+        return meta;
+    }
+
+    protected override Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_toastShown && LoginStatus == "success")
+        {
+            _toastShown = true;
+            NotificationService.Notify(new NotificationMessage { Severity = NotificationSeverity.Success, Summary = "Inicio de sesión exitoso", Detail = "Bienvenido al portal iBr Latam.", Duration = 3500 });
+        }
+        return Task.CompletedTask;
+    }
+}

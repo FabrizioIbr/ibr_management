@@ -1,0 +1,12 @@
+@* Layout del Dashboard (selector de portales): barra superior, sin sidebar. *@
+@inherits LayoutComponentBase
+
+<div class="hub-shell">
+    <header class="hub-topbar">
+        <a href="/dashboard" class="hub-topbar__brand"><img src="/ibr_logo.png" alt="iBr Latam" /></a>
+        <UserMenu />
+    </header>
+    <main class="hub-content">
+        @Body
+    </main>
+</div>
