@@ -1,0 +1,302 @@
+@using System.Globalization
+@using Ibr.Application.Vacations
+@inject IVacationTeamService TeamService
+@inject DialogService DialogService
+
+<div class="ibr-detail">
+    @if (loading)
+    {
+        <div class="ibr-detail__head">
+            <div class="ibr-detail__heading">
+                <div class="ibr-skeleton" style="min-height:1.6rem;width:50%;margin-bottom:.6rem"></div>
+                <div class="ibr-skeleton" style="min-height:.9rem;width:75%"></div>
+            </div>
+        </div>
+        <div class="ibr-skeleton" style="min-height:88px"></div>
+        <div class="ibr-skeleton" style="min-height:300px"></div>
+    }
+    else if (error is not null)
+    {
+        <div class="ibr-empty">
+            <RadzenIcon Icon="error" />
+            <strong>No se pudo cargar el detalle</strong>
+            <span>@error</span>
+        </div>
+    }
+    else if (resumen is null)
+    {
+        <div class="ibr-empty">
+            <RadzenIcon Icon="admin_panel_settings" />
+            <strong>Colaborador fuera de tu alcance</strong>
+            <span>Solo puedes consultar el detalle de tu equipo jerárquico.</span>
+        </div>
+    }
+    else
+    {
+        <div class="ibr-detail__head">
+            <div class="ibr-detail__title-row">
+                <Avatar Name="@resumen.Nombre" />
+                <h2 class="ibr-detail__name">@resumen.Nombre</h2>
+            </div>
+            <div class="ibr-detail__meta">
+                <span><RadzenIcon Icon="mail" />@resumen.Email</span>
+                @if (!string.IsNullOrWhiteSpace(resumen.Cargo))
+                {
+                    <span><RadzenIcon Icon="work" />@resumen.Cargo</span>
+                }
+                @if (!string.IsNullOrWhiteSpace(resumen.Area))
+                {
+                    <span><RadzenIcon Icon="account_tree" />@resumen.Area</span>
+                }
+                @if (resumen.FechaIngreso is { } ingreso)
+                {
+                    <span><RadzenIcon Icon="event" />Ingresó el @Format(ingreso)</span>
+                }
+            </div>
+        </div>
+
+        <RadzenTabs>
+            <Tabs>
+                <RadzenTabsItem Text="Resumen">
+                    <div class="ibr-explain @ExplainClass">@ExplainText</div>
+                    <div class="ibr-detail__plan">
+                        <RadzenButton Text="Planificar vacaciones" Icon="event_available" Size="ButtonSize.Large" ButtonStyle="ButtonStyle.Primary"
+                                      Click="OpenPlanAsync" />
+                    </div>
+                </RadzenTabsItem>
+                <RadzenTabsItem Text="Solicitudes">
+                    @if (resumen.Solicitudes.Count == 0)
+                    {
+                        <div class="ibr-empty">
+                            <RadzenIcon Icon="beach_access" />
+                            <strong>Sin solicitudes</strong>
+                            <span>Este colaborador no tiene vacaciones registradas.</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="overflow-x:auto">
+                            <table class="ibr-period-table">
+                                <thead>
+                                    <tr>
+                                        <th>Inicio</th>
+                                        <th>Fin</th>
+                                        <th class="is-right">Días</th>
+                                        <th>Estado</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var solicitud in resumen.Solicitudes)
+                                    {
+                                        <tr>
+                                            <td>@Format(solicitud.StartDate)</td>
+                                            <td>@Format(solicitud.EndDate)</td>
+                                            <td class="is-right">@Days(solicitud.WorkingDays) háb. · @Days(solicitud.CalendarDays) cal.</td>
+                                            <td><span class="ibr-badge ibr-badge--@RequestBadge(solicitud.Status).Css">@RequestBadge(solicitud.Status).Label</span></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </RadzenTabsItem>
+                <RadzenTabsItem Text="Auditoría (FIFO)">
+                    @if (resumen.Periodos.Count == 0)
+                    {
+                        <div class="ibr-empty">
+                            <RadzenIcon Icon="event_busy" />
+                            <strong>Sin periodos registrados</strong>
+                            <span>Buk no devolvió periodos ganados para este colaborador.</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="overflow-x:auto">
+                            <table class="ibr-period-table">
+                                <thead>
+                                    <tr>
+                                        <th>Periodo</th>
+                                        <th class="is-right">Días devengados</th>
+                                        <th class="is-right">Consumo FIFO</th>
+                                        <th class="is-right">Saldo</th>
+                                        <th>Vencimiento</th>
+                                        <th>Estado</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var periodo in resumen.Periodos)
+                                    {
+                                        <tr>
+                                            <td>
+                                                @periodo.AnioPeriodo
+                                                @if (periodo.EsProporcional)
+                                                {
+                                                    <span class="ibr-badge ibr-badge--info" style="margin-left:.5rem">Parcial</span>
+                                                }
+                                            </td>
+                                            <td class="is-right">
+                                                @if (periodo.DiasGanados < 0)
+                                                {
+                                                    <span class="ibr-adjust">Ajuste de RRHH</span>
+                                                }
+                                                else
+                                                {
+                                                    @Days(periodo.DiasGanados)
+                                                }
+                                            </td>
+                                            <td class="is-right">
+                                                @if (periodo.DiasGozados < 0)
+                                                {
+                                                    <span class="ibr-adjust">Ajuste</span>
+                                                }
+                                                else
+                                                {
+                                                    @Days(periodo.DiasGozados)
+                                                }
+                                            </td>
+                                            <td class="is-right">
+                                                <strong class="@(periodo.Saldo > 0 ? null : "ibr-text-muted")">@Days(periodo.Saldo)</strong>
+                                            </td>
+                                            <td class="@(periodo.Estado is "vencido" or "por_vencer" ? "ibr-period-soon" : null)">@VacationUi.Date(periodo.VenceEl)</td>
+                                            <td><span class="ibr-badge ibr-badge--@PeriodBadge(periodo.Estado).Css">@PeriodBadge(periodo.Estado).Label</span></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </RadzenTabsItem>
+            </Tabs>
+        </RadzenTabs>
+    }
+</div>
+
+@code {
+    [Parameter] public int EmployeeId { get; set; }
+    [Parameter] public int BossEmployeeId { get; set; }
+    /// <summary>Se invoca tras guardar un plan para que la vista principal recargue su tabla.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private VacationColaboradorResumenDto? resumen;
+    private bool loading = true;
+    private string? error;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if (EmployeeId <= 0)
+        {
+            loading = false;
+            return;
+        }
+
+        loading = true;
+        error = null;
+        try
+        {
+            resumen = await TeamService.GetColaboradorResumenAsync(BossEmployeeId, EmployeeId, unrestricted: false);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private string ExplainClass => resumen is not null && resumen.DiasVencidos > 0 ? "ibr-explain--danger" : null!;
+
+    private decimal PreApprovedDays => resumen?.Solicitudes
+        .Where(solicitud => solicitud.Status == "pre_approved")
+        .Sum(solicitud => solicitud.CalendarDays) ?? 0;
+
+    private string ExplainText
+    {
+        get
+        {
+            var r = resumen!;
+            var pre = Days(PreApprovedDays);
+            var libres = Days(Math.Max(0, r.DiasDisponibles - PreApprovedDays));
+
+            if (r.DiasVencidos > 0)
+            {
+                var danger = $"¡Atención! {r.Nombre} tiene {Days(r.DiasVencidos)} días vencidos que ya no se pueden tomar y deberán ser indemnizados. " +
+                             $"Además cuenta con {Days(r.DiasDisponibles)} días disponibles vigentes.";
+                if (PreApprovedDays > 0)
+                {
+                    danger += $" Ya reserva {pre} días en solicitudes preaprobadas ({libres} días libres efectivos).";
+                }
+
+                return danger;
+            }
+
+            var text = $"{r.Nombre} tiene {Days(r.DiasDisponibles)} días en total.";
+            if (PreApprovedDays > 0)
+            {
+                text += $" Sin embargo, ya cuenta con {pre} días en solicitudes preaprobadas, así que le quedan {libres} días disponibles.";
+            }
+
+            if (r.DiasProximosAVencer > 0 && r.FechaVencimientoProxima is { } vencimiento && r.DiasFaltantesParaVencer is { } faltantes)
+            {
+                text += $" Le quedan {Days(r.DiasProximosAVencer)} días críticos por vencer el {Format(vencimiento)} (faltan {faltantes} días).";
+            }
+            else if (r.FechaVencimientoProxima is { } proximo)
+            {
+                text += $" Su próximo vencimiento es el {Format(proximo)}.";
+            }
+            else
+            {
+                text += " Actualmente no tiene días en riesgo de vencerse.";
+            }
+
+            return text + " Haz clic en «Planificar» para asignar las fechas.";
+        }
+    }
+
+    private async Task OpenPlanAsync()
+    {
+        if (resumen is null) return;
+
+        var saved = await DialogService.OpenAsync<VacationPlanDialog>(
+            $"Planificar vacaciones · {resumen.Nombre}",
+            new Dictionary<string, object?>
+            {
+                [nameof(VacationPlanDialog.EmployeeId)] = resumen.EmployeeId,
+                [nameof(VacationPlanDialog.EmployeeName)] = resumen.Nombre,
+                [nameof(VacationPlanDialog.BossEmployeeId)] = BossEmployeeId
+            },
+            new DialogOptions { Width = "min(460px, 94vw)", ShowClose = true, Draggable = true, CssClass = "ibr-dialog" });
+
+        if (saved is true)
+        {
+            await LoadAsync();
+            if (OnChanged.HasDelegate) await OnChanged.InvokeAsync();
+        }
+    }
+
+    private static (string Css, string Label) PeriodBadge(string estado) => estado switch
+    {
+        "vencido" => ("danger", "Vencido"),
+        "por_vencer" => ("warning", "Por Vencer"),
+        "agotado" => ("neutral", "Agotado"),
+        "ajustado" => ("neutral", "Ajustado"),
+        _ => ("success", "Disponible")
+    };
+
+    private static (string Css, string Label) RequestBadge(string status) => status.ToLowerInvariant() switch
+    {
+        "approved" => ("success", "Aprobada"),
+        "pre_approved" => ("neutral", "Preaprobada"),
+        "submitted" => ("neutral", "Solicitada"),
+        "rejected" => ("danger", "Rechazada"),
+        "signature_required" => ("info", "Falta firma"),
+        _ => ("neutral", status)
+    };
+
+    private static string Days(decimal value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static string Format(DateOnly value) => value.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+}

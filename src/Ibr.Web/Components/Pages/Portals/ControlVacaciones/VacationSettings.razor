@@ -1,0 +1,88 @@
+@page "/control-vacaciones/configuracion"
+@layout PortalLayout
+@attribute [Authorize]
+@using Ibr.Application.Vacations
+@inject IVacationSettingsService SettingsService
+@inject NotificationService NotificationService
+
+<PageTitle>Configuración de reglas</PageTitle>
+
+<nav class="ibr-breadcrumb" aria-label="Ruta">
+    <a href="/dashboard">Portales</a><RadzenIcon Icon="chevron_right" /><span>Control de vacaciones</span><RadzenIcon Icon="chevron_right" /><span>Configuración</span>
+</nav>
+
+<PageHeader Eyebrow="Control de vacaciones" Title="Configuración de reglas" Subtitle="Umbrales de la semaforización de vencimientos (días antes de caducar)." />
+
+@if (!allowed)
+{
+    <div class="ibr-card ibr-empty">
+        <RadzenIcon Icon="lock" />
+        <strong>No tienes permisos para esta sección</strong>
+        <span>Solo los administradores del sistema y RRHH pueden ajustar las reglas del portal.</span>
+    </div>
+}
+else
+{
+    <div class="ibr-card" style="max-width:560px">
+        <h2 class="ibr-section-title">Semáforo de vencimientos</h2>
+        <p class="ibr-text-muted" style="margin-top:0">
+            Un periodo con saldo pendiente se marca <strong>Alerta</strong> si vence en los próximos
+            @alertDays días y <strong>Crítico</strong> si vence en los próximos @criticalDays días.
+            Si ya venció con saldo, se marca <strong>Vencido</strong>.
+        </p>
+
+        <div class="ibr-field" style="margin-bottom:1rem">
+            <label class="ibr-field__label" for="cfg-alerta">Días de alerta</label>
+            <RadzenNumeric id="cfg-alerta" @bind-Value="alertDays" Min="1" Max="365" Step="1" style="width:100%" />
+            <span class="ibr-field__hint">Ej. 90 días antes del vencimiento.</span>
+        </div>
+        <div class="ibr-field" style="margin-bottom:1.25rem">
+            <label class="ibr-field__label" for="cfg-critico">Días críticos</label>
+            <RadzenNumeric id="cfg-critico" @bind-Value="criticalDays" Min="1" Max="365" Step="1" style="width:100%" />
+            <span class="ibr-field__hint">Ej. 60 días. Debe ser menor que los días de alerta.</span>
+        </div>
+
+        <RadzenButton Text="Guardar cambios" Icon="save" ButtonStyle="ButtonStyle.Primary" Click="@SaveAsync" Disabled="@saving" />
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = null!;
+
+    private bool allowed;
+    private bool saving;
+    private int alertDays = 90;
+    private int criticalDays = 60;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthState).User;
+        allowed = user.IsVacationAdmin();
+        if (!allowed) return;
+
+        var current = SettingsService.Current;
+        alertDays = current.AlertDays;
+        criticalDays = current.CriticalDays;
+    }
+
+    private async Task SaveAsync()
+    {
+        saving = true;
+        try
+        {
+            var saved = await SettingsService.SaveAsync(alertDays, criticalDays);
+            alertDays = saved.AlertDays;
+            criticalDays = saved.CriticalDays;
+            NotificationService.Notify(NotificationSeverity.Success, "Configuración guardada",
+                $"Alerta a {saved.AlertDays} días y crítico a {saved.CriticalDays} días.");
+        }
+        catch (InvalidOperationException exception)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "No se pudo guardar", exception.Message);
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+}

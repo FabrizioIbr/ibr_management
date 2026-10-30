@@ -1,0 +1,221 @@
+@page "/admin/periodo-vacaciones"
+@layout PortalLayout
+@attribute [Authorize]
+@using System.Globalization
+@using Ibr.Application.Vacations
+@inject IVacationAdminService VacationAdminService
+
+<PageTitle>Periodo vacacional</PageTitle>
+
+<nav class="ibr-breadcrumb" aria-label="Ruta">
+    <a href="/dashboard">Portales</a><RadzenIcon Icon="chevron_right" /><span>Control de vacaciones</span><RadzenIcon Icon="chevron_right" /><span>Periodos</span>
+</nav>
+
+<PageHeader Title="Periodo vacacional" Subtitle="Busca al empleado y revisa sus periodos ganados, su consumo FIFO y los vencimientos.">
+    <Actions>
+        <RadzenButton Text="Actualizar" Icon="refresh" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Click="@ReloadAsync" Disabled="@(employeeId <= 0)" />
+    </Actions>
+</PageHeader>
+
+<div class="ibr-card">
+    <div class="ibr-filterbar" style="grid-template-columns:minmax(260px,1fr);max-width:520px">
+        <div class="ibr-field">
+            <label class="ibr-field__label" for="flt-empleado">Buscar empleado</label>
+            <RadzenTextBox id="flt-empleado" Value="@searchTerm" Change="@(async text => await OnSearchChangedAsync(text))" Immediate="true"
+                           Placeholder="Nombre o correo (ej. Fabrizio Diaz)…" />
+            @if (showSuggestions)
+            {
+                <div class="ibr-suggest">
+                    @if (searching)
+                    {
+                        <div class="ibr-suggest__empty"><RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" /> Buscando…</div>
+                    }
+                    else if (suggestions.Count == 0)
+                    {
+                        <div class="ibr-suggest__empty">Sin coincidencias en Empleados.</div>
+                    }
+                    else
+                    {
+                        @foreach (var candidate in suggestions)
+                        {
+                            <button type="button" class="ibr-suggest__item" @onclick="() => PickEmployeeAsync(candidate)">
+                                <strong>@candidate.FullName</strong>
+                                <small>@candidate.Email · ID @candidate.EmployeeId</small>
+                            </button>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@if (loadingEmployee)
+{
+    <div class="ibr-loading"><RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Medium" /></div>
+}
+else if (summary is not null)
+{
+    <div class="ibr-stats">
+        <StatCard Label="Total días ganados" Value="@Days(summary.TotalEarned)" Icon="today" />
+        <StatCard Label="Total días gozados" Value="@Days(summary.TotalTaken)" Icon="beach_access" Tone="muted" />
+        <StatCard Label="Saldo actual" Value="@Days(summary.CurrentBalance)" Icon="savings" Tone="@(summary.CurrentBalance > 0 ? "success" : "muted")" />
+    </div>
+
+    <div class="ibr-card">
+        <h2 class="ibr-section-title">
+            @summary.EmployeeName
+            <span>@summary.Periods.Count @(summary.Periods.Count == 1 ? "periodo" : "periodos")</span>
+        </h2>
+        <p class="ibr-text-muted" style="margin:-.6rem 0 1rem">@summary.EmployeeEmail</p>
+
+        @if (summary.Periods.Count == 0)
+        {
+            <div class="ibr-empty">
+                <RadzenIcon Icon="event_busy" />
+                <strong>Sin periodos registrados</strong>
+                <span>Buk no devolvió periodos ganados para este empleado.</span>
+            </div>
+        }
+        else
+        {
+            <div style="overflow-x:auto">
+                <table class="ibr-period-table">
+                    <thead>
+                        <tr>
+                            <th>Periodo</th>
+                            <th class="is-right">Días ganados</th>
+                            <th class="is-right">Días gozados</th>
+                            <th class="is-right">Saldo del periodo</th>
+                            <th>Vencimiento</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var period in summary.Periods)
+                        {
+                            <tr>
+                                <td>
+                                    @Format(period.PeriodStartDate) – @Format(period.PeriodEndDate)
+                                    @if (period.IsProportional)
+                                    {
+                                        <span class="ibr-badge ibr-badge--info" style="margin-left:.5rem">Proporcional</span>
+                                    }
+                                </td>
+                                <td class="is-right">@Days(period.EarnedDays)</td>
+                                <td class="is-right">@Days(period.UsedDays)</td>
+                                <td class="is-right">
+                                    <span class="@(period.RemainingDays <= 0 ? "ibr-text-muted" : null)">@Days(period.RemainingDays)</span>
+                                </td>
+                                <td>
+                                    @if (period.ExpirationDate is null)
+                                    {
+                                        <span class="ibr-period-muted">—</span>
+                                    }
+                                    else if (period.ExpirationDate < today && period.RemainingDays > 0)
+                                    {
+                                        <span class="ibr-period-cell ibr-period-expired">
+                                            <svg class="ibr-svg-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M12 9v4" /><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0" /><path d="M12 16h.01" /></svg>
+                                            @Format(period.ExpirationDate.Value)
+                                        </span>
+                                    }
+                                    else if (period.ExpirationDate <= today.AddDays(60) && period.RemainingDays > 0)
+                                    {
+                                        <span class="ibr-period-cell ibr-period-soon"><RadzenIcon Icon="schedule" />@Format(period.ExpirationDate.Value)</span>
+                                    }
+                                    else
+                                    {
+                                        <span>@Format(period.ExpirationDate.Value)</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <div class="ibr-card ibr-empty">
+        <RadzenIcon Icon="person_search" />
+        <strong>Selecciona un empleado</strong>
+        <span>Escribe nombre o correo arriba para ver sus periodos vacacionales y el saldo con criterio FIFO.</span>
+    </div>
+}
+
+@code {
+    private EmployeeVacationDto? summary;
+    private IReadOnlyList<EmployeeSearchDto> suggestions = [];
+    private int employeeId;
+    private string searchTerm = string.Empty;
+    private bool showSuggestions;
+    private bool searching;
+    private bool loadingEmployee;
+    private CancellationTokenSource? searchCts;
+    private DateOnly today = DateOnly.FromDateTime(DateTime.Now);
+
+    private async Task OnSearchChangedAsync(string text)
+    {
+        searchTerm = text;
+        var term = text.Trim();
+        if (term.Length < 2)
+        {
+            suggestions = [];
+            showSuggestions = false;
+            searching = false;
+            StateHasChanged();
+            return;
+        }
+
+        showSuggestions = true;
+        searching = true;
+        searchCts?.Cancel();
+        var cts = searchCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(250, cts.Token);
+            var results = await VacationAdminService.SearchEmployeesAsync(term, cts.Token);
+            suggestions = results;
+            searching = false;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            StateHasChanged();
+        }
+    }
+
+    private async Task PickEmployeeAsync(EmployeeSearchDto candidate)
+    {
+        employeeId = candidate.EmployeeId;
+        searchTerm = candidate.FullName;
+        suggestions = [];
+        showSuggestions = false;
+        await LoadEmployeeAsync();
+    }
+
+    private async Task ReloadAsync() => await LoadEmployeeAsync();
+
+    private async Task LoadEmployeeAsync()
+    {
+        if (employeeId <= 0) return;
+
+        loadingEmployee = true;
+        summary = null;
+        try
+        {
+            summary = await VacationAdminService.GetEmployeeVacationsAsync(employeeId);
+        }
+        finally
+        {
+            loadingEmployee = false;
+        }
+    }
+
+    private static string Days(decimal value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static string Format(DateOnly date) => date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+}

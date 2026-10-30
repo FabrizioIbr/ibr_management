@@ -34,6 +34,31 @@
 
 .portal-sidebar__user { margin-top: 1rem; padding: .85rem .65rem 0; border-top: 1px solid var(--ibr-border); }
 
+.portal-sidebar__collapse { display: none; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--ibr-text-subtle); cursor: pointer; transition: background-color .15s ease, color .15s ease; }
+.portal-sidebar__collapse:hover { background: #F5F7FB; color: var(--ibr-text); }
+
+/* ---------- Sidebar colapsado (solo escritorio) ---------- */
+@media (min-width: 961px) {
+    .portal-sidebar__collapse { display: grid; }
+
+    .portal-shell--nav-collapsed .portal-sidebar { width: 84px; flex-basis: 84px; padding-inline: .7rem; }
+    .portal-shell--nav-collapsed .portal-sidebar__brand { flex-direction: column; justify-content: center; gap: .35rem; }
+    .portal-shell--nav-collapsed .portal-sidebar__brand img { display: none; }
+    .portal-shell--nav-collapsed .portal-sidebar__back { justify-content: center; padding-inline: 0; }
+    .portal-shell--nav-collapsed .portal-sidebar__back span,
+    .portal-shell--nav-collapsed .portal-sidebar__portal-name,
+    .portal-shell--nav-collapsed .portal-nav__caption,
+    .portal-shell--nav-collapsed .portal-nav__search,
+    .portal-shell--nav-collapsed .portal-nav__link--soon em,
+    .portal-shell--nav-collapsed .portal-nav ::deep .portal-nav__link span { display: none; }
+    .portal-shell--nav-collapsed .portal-sidebar__portal { justify-content: center; padding: .6rem .4rem; }
+    .portal-shell--nav-collapsed .portal-nav ::deep .portal-nav__link { justify-content: center; }
+    .portal-shell--nav-collapsed .portal-sidebar__user { display: flex; justify-content: center; padding-inline: 0; }
+    .portal-shell--nav-collapsed .portal-sidebar__user ::deep .user-menu { justify-content: center; }
+    .portal-shell--nav-collapsed .portal-sidebar__user ::deep .user-menu__info { display: none; }
+    .portal-shell--nav-collapsed .portal-content { max-width: 1440px; }
+}
+
 .portal-main { flex: 1; min-width: 0; }
 .portal-content { max-width: 1200px; margin: 0 auto; padding: 2.5rem 2.5rem 4rem; }
 .portal-topbar, .portal-backdrop { display: none; }

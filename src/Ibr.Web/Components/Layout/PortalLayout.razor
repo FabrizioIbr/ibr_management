@@ -5,15 +5,17 @@
 @using Ibr.Application.Portals
 @inject NavigationManager Navigation
 @inject IPortalService PortalService
+@inject IJSRuntime JS
 
-<div class="portal-shell @(navOpen ? "portal-shell--nav-open" : null)">
+<div class="portal-shell @(navOpen ? "portal-shell--nav-open" : null) @(collapsed ? "portal-shell--nav-collapsed" : null)">
     <aside class="portal-sidebar">
         <div class="portal-sidebar__brand">
             <a href="/dashboard"><img src="/ibr_logo.png" alt="iBr Latam" /></a>
+            <button class="portal-sidebar__collapse" @onclick="ToggleCollapseAsync" title="Colapsar menú" aria-label="Colapsar menú"><RadzenIcon Icon="@(collapsed ? "chevron_right" : "chevron_left")" /></button>
             <button class="portal-sidebar__close" @onclick="() => navOpen = false" aria-label="Cerrar menú"><RadzenIcon Icon="close" /></button>
         </div>
 
-        <a class="portal-sidebar__back" href="/dashboard"><RadzenIcon Icon="arrow_back" /><span>Todos los portales</span></a>
+        <a class="portal-sidebar__back" href="/dashboard" title="Todos los portales"><RadzenIcon Icon="arrow_back" /><span>Todos los portales</span></a>
 
         @if (portal is not null)
         {
@@ -23,7 +25,7 @@
             </div>
 
             <nav class="portal-nav" aria-label="@portal.Name">
-                <NavLink class="portal-nav__link" href="@portal.Href" Match="NavLinkMatch.All" @onclick="() => navOpen = false"><RadzenIcon Icon="home" /><span>Inicio</span></NavLink>
+                <NavLink class="portal-nav__link" href="@portal.Href" Match="NavLinkMatch.All" title="Inicio" @onclick="() => navOpen = false"><RadzenIcon Icon="home" /><span>Inicio</span></NavLink>
 
                 @if (portal.Sections.Count > SearchThreshold)
                 {
@@ -40,11 +42,11 @@
                     {
                         @if (section.Available)
                         {
-                            <NavLink class="portal-nav__link portal-nav__link--sub" href="@section.Route" @onclick="() => navOpen = false"><IconView Icon="@section.Icon" /><span>@section.Title</span></NavLink>
+                            <NavLink class="portal-nav__link portal-nav__link--sub" href="@section.Route" title="@section.Title" @onclick="() => navOpen = false"><IconView Icon="@SectionIcon(section)" /><span>@section.Title</span></NavLink>
                         }
                         else
                         {
-                            <span class="portal-nav__link portal-nav__link--sub portal-nav__link--soon" title="Próximamente"><IconView Icon="@section.Icon" /><span>@section.Title</span><em>Pronto</em></span>
+                            <span class="portal-nav__link portal-nav__link--sub portal-nav__link--soon" title="@($"{section.Title} — próximamente")"><IconView Icon="@SectionIcon(section)" /><span>@section.Title</span><em>Pronto</em></span>
                         }
                     }
                 }
@@ -92,15 +94,52 @@
     /// <summary>A partir de cuántas secciones el sidebar muestra el buscador.</summary>
     private const int SearchThreshold = 8;
 
+    private const string CollapseStorageKey = "ibr.sidebar.collapsed";
+
+    /// <summary>Icono (Tabler) para secciones sin icono propio: siempre visible también en el rail colapsado.</summary>
+    private const string DefaultSectionIcon =
+        """<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-target-off"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M11.286 11.3a1 1 0 0 0 1.41 1.419"/><path d="M8.44 8.49a5 5 0 0 0 7.098 7.044m1.377 -2.611a5 5 0 0 0 -5.846 -5.836"/><path d="M5.649 5.623a9 9 0 1 0 12.698 12.758m1.683 -2.313a9 9 0 0 0 -12.076 -12.11"/><path d="M3 3l18 18"/></svg>""";
+
+    private static string SectionIcon(PortalSectionDto section) =>
+        string.IsNullOrWhiteSpace(section.Icon) ? DefaultSectionIcon : section.Icon;
+
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = null!;
 
     private enum AccessState { Loading, Allowed, Denied, Unavailable, NotRegistered }
 
     private bool navOpen;
+    private bool collapsed;
     private string search = string.Empty;
     private IReadOnlyList<PortalDto>? portals;
     private PortalDto? portal;
     private AccessState state = AccessState.Loading;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", CollapseStorageKey);
+            if (stored == "1")
+            {
+                collapsed = true;
+                StateHasChanged();
+            }
+        }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
+    }
+
+    private async Task ToggleCollapseAsync()
+    {
+        collapsed = !collapsed;
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", CollapseStorageKey, collapsed ? "1" : "0");
+        }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
+    }
 
     // Se ejecuta en cada navegación: con los portales ya cargados se resuelve al instante (sin parpadeo)
     // y luego se refresca desde la BD para reflejar cambios hechos en Gestión Maestros.

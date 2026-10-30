@@ -1,0 +1,55 @@
+.ibr-plan {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: .25rem .25rem 0;
+}
+
+.ibr-plan__hint {
+    margin: 0;
+    color: var(--ibr-text-muted);
+    font-size: .875rem;
+    line-height: 1.55;
+}
+
+.ibr-plan__fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.ibr-plan__fields .rz-calendar { width: 100%; }
+
+.ibr-plan__days {
+    display: flex;
+    gap: 1.25rem;
+    color: var(--ibr-text-muted);
+    font-size: .85rem;
+}
+
+.ibr-plan__days strong { color: var(--ibr-text); }
+
+.ibr-plan__error {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .7rem .9rem;
+    border-radius: 10px;
+    background: #FEF2F2;
+    color: #B91C1C;
+    font-size: .85rem;
+    font-weight: 600;
+}
+
+.ibr-plan__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: .75rem;
+    margin-top: .25rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--ibr-border);
+}
+
+@media (max-width: 560px) {
+    .ibr-plan__fields { grid-template-columns: 1fr; }
+}

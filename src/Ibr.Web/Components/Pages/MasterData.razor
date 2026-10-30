@@ -23,17 +23,17 @@
         </Actions>
     </PageHeader>
 
-    <div class="ibr-stats">
-        <StatCard Label="Total registros" Value="@Count(records.Count)" Icon="@schema.Icon" />
-        @if (schema.StatusField is { } status)
-        {
-            var active = records.Count(record => record[status] is true);
+    @* El total de registros se ve en la barra del grid ("X de Y registros") y en la paginación. *@
+    @if (schema.StatusField is { } status)
+    {
+        var active = records.Count(record => record[status] is true);
+        <div class="ibr-stats">
             <StatCard Label="Activos" Value="@Count(active)" Icon="check_circle" Tone="success" />
             <StatCard Label="Inactivos" Value="@Count(records.Count - active)" Icon="block" Tone="muted" />
-        }
-    </div>
+        </div>
+    }
 
-    <SchemaDataGrid Schema="@schema" Records="@records" Loading="@isLoading" OnEdit="@OpenFormAsync" OnDelete="@DeleteAsync" />
+    <SchemaDataGrid Schema="@schema" Records="@records" Loading="@isLoading" Lookups="@lookups" OnEdit="@OpenFormAsync" OnDetails="@OpenDetailAsync" OnDelete="@DeleteAsync" />
 }
 
 @code {
@@ -42,6 +42,7 @@
 
     private CatalogSchema? schema;
     private IReadOnlyList<CatalogRow> records = [];
+    private IReadOnlyDictionary<string, IReadOnlyList<LookupOption>>? lookups;
     private bool isLoading = true;
 
     protected override async Task OnParametersSetAsync()
@@ -62,6 +63,7 @@
     {
         isLoading = true;
         records = await MaestrosService.GetRecordsAsync(schema!.Slug);
+        lookups = await MaestrosService.GetLookupsAsync(schema.Slug);
         isLoading = false;
     }
 
@@ -80,6 +82,12 @@
 
     private async Task DeleteAsync(CatalogRow record)
     {
+        if (!schema!.CanDelete)
+        {
+            NotificationService.Notify(NotificationSeverity.Info, "Tabla protegida", "Esta tabla se mantiene mediante sincronización y no se puede eliminar.");
+            return;
+        }
+
         var confirmed = await DialogService.Confirm(
             $"Se eliminará «{record[CatalogSchema.TitleKey]}». Esta acción no se puede deshacer.",
             $"Eliminar {schema!.Singular}",
@@ -97,6 +105,17 @@
             NotificationService.Notify(NotificationSeverity.Error, "No se pudo eliminar", result.Error ?? string.Empty);
         }
     }
+
+    private Task OpenDetailAsync(CatalogRow record) =>
+        DialogService.OpenAsync<SchemaDetailDialog>(
+            $"Detalle de {schema!.Singular}",
+            new Dictionary<string, object?>
+            {
+                [nameof(SchemaDetailDialog.Schema)] = schema,
+                [nameof(SchemaDetailDialog.Record)] = record,
+                [nameof(SchemaDetailDialog.OnEdit)] = EventCallback.Factory.Create<CatalogRow>(this, OpenFormAsync)
+            },
+            new DialogOptions { Width = "min(760px, 94vw)", Resizable = true, Draggable = true, CssClass = "ibr-dialog ibr-dialog--detail" });
 
     private string Count(int value) => isLoading ? "—" : value.ToString();
 

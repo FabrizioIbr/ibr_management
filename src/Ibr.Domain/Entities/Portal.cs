@@ -15,5 +15,5 @@ public class Portal
     public int? RoleId { get; set; }
     public Role? Role { get; set; }
     public ICollection<PortalSection> Sections { get; set; } = new List<PortalSection>();
-    public ICollection<User> Users { get; set; } = new List<User>();
+    public ICollection<AppUser> Users { get; set; } = new List<AppUser>();
 }

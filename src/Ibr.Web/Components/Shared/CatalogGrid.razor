@@ -1,0 +1,182 @@
+@* Tabla de una lista de catálogo (llana o de un grupo del acordeón): columnas desde el schema, celdas con badges/pills/tooltips y paginación en español. *@
+@using System.Globalization
+@using Ibr.Application.Maestros
+@using Microsoft.AspNetCore.Components.Rendering
+@inject NavigationManager Navigation
+
+<RadzenDataGrid TItem="CatalogRow" Data="@Rows" AllowPaging="true" AllowSorting="true"
+                PageSize="@pageSize" PageSizeOptions="@PageSizes" PageSizeText="registros por página"
+                PageSizeChanged="@OnPageSizeChanged" ShowPagingSummary="true"
+                PagerHorizontalAlign="HorizontalAlign.Right"
+                RowDoubleClick="@(args => OnDetails.InvokeAsync(args.Data))">
+    <PagingSummaryTemplate Context="info">
+        <span class="ibr-pager-summary">@PagingSummary(info)</span>
+    </PagingSummaryTemplate>
+    <EmptyTemplate>
+        <div class="ibr-empty">
+            <RadzenIcon Icon="inventory_2" />
+            <strong>Sin resultados</strong>
+            <span>@(HasQuery ? "Ningún registro coincide con la búsqueda o los filtros." : "Aún no hay registros. Crea el primero con el botón superior.")</span>
+        </div>
+    </EmptyTemplate>
+    <Columns>
+        <RadzenDataGridColumn TItem="CatalogRow" Title="@Schema.TitleLabel" MinWidth="260px"
+                              Property="@PropertyAccess.GetDynamicPropertyExpression(CatalogSchema.TitleKey, typeof(string))">
+            <Template Context="row">
+                <div class="ibr-cell-primary">
+                    @{ var title = CatalogUiText.Display(row[CatalogSchema.TitleKey] as string); }
+                    <Avatar Name="@title" />
+                    <span class="ibr-cell-primary__name" title="@title">@title</span>
+                </div>
+            </Template>
+        </RadzenDataGridColumn>
+
+        @foreach (var field in Schema.Fields.Where(column => column.ShowInGrid && !column.IsKey))
+        {
+            <RadzenDataGridColumn TItem="CatalogRow" Title="@field.Label" WhiteSpace="WhiteSpace.Wrap"
+                                  Property="@PropertyAccess.GetDynamicPropertyExpression(field.DisplayKey, field.DisplayType)"
+                                  Width="@(field.Kind == FieldKind.Boolean ? "130px" : null)">
+                <Template Context="row">@RenderCell(field, row)</Template>
+            </RadzenDataGridColumn>
+        }
+
+        <RadzenDataGridColumn TItem="CatalogRow" Title="" Width="@(ActionsWidth)" Sortable="false" TextAlign="TextAlign.Right">
+            <Template Context="row">
+                <div class="ibr-row-actions">
+                    @if (ShowDetailsAction)
+                    {
+                        <RadzenButton Icon="visibility" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small"
+                                      title="Ver detalle" Click="@(() => OnDetails.InvokeAsync(row))" />
+                    }
+                    <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small"
+                                  title="Editar" Click="@(() => OnEdit.InvokeAsync(row))" />
+                    @if (Schema.RowLinkHref is { } href)
+                    {
+                        <RadzenButton Icon="@(Schema.RowLinkIcon ?? "link")" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small"
+                                      title="@Schema.RowLinkText" Click="@(() => OpenRowLink(href, row))" />
+                    }
+                    @if (Schema.CanDelete)
+                    {
+                        <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Text" Size="ButtonSize.Small"
+                                      title="Eliminar" Click="@(() => OnDelete.InvokeAsync(row))" />
+                    }
+                </div>
+            </Template>
+        </RadzenDataGridColumn>
+    </Columns>
+</RadzenDataGrid>
+
+@code {
+    [Parameter, EditorRequired] public CatalogSchema Schema { get; set; } = null!;
+    [Parameter, EditorRequired] public IEnumerable<CatalogRow> Rows { get; set; } = [];
+    [Parameter] public bool HasQuery { get; set; }
+    [Parameter] public bool ShowDetailsAction { get; set; } = true;
+    [Parameter] public EventCallback<CatalogRow> OnEdit { get; set; }
+    [Parameter] public EventCallback<CatalogRow> OnDetails { get; set; }
+    [Parameter] public EventCallback<CatalogRow> OnDelete { get; set; }
+
+    private string ActionsWidth => ((ShowDetailsAction ? 1 : 0) + 1 + (Schema.RowLinkHref is null ? 0 : 1) + (Schema.CanDelete ? 1 : 0)) switch
+    {
+        >= 4 => "160px",
+        3 => "120px",
+        _ => "88px"
+    };
+
+    private static readonly int[] PageSizes = [20, 50, 100];
+    private int pageSize = 20;
+
+    private void OnPageSizeChanged(int size) => pageSize = size;
+
+    private void OpenRowLink(string href, CatalogRow row) =>
+        Navigation.NavigateTo(href.Replace("{key}", row[Schema.KeyField]?.ToString() ?? "0", StringComparison.Ordinal));
+
+    private string PagingSummary(PagingInformation info)
+    {
+        if (info.TotalCount == 0) return "Sin registros";
+        var from = (info.CurrentPage - 1) * pageSize + 1;
+        var to = Math.Min(info.CurrentPage * pageSize, info.TotalCount);
+        return $"Mostrando {from}-{to} de {info.TotalCount} registros · Página {info.CurrentPage} de {info.NumberOfPages}";
+    }
+
+    private RenderFragment RenderCell(FieldSchema field, CatalogRow row) => builder =>
+    {
+        row.TryGetValue(field.DisplayKey, out var value);
+        switch (field.Kind)
+        {
+            case FieldKind.Boolean when field.Name == Schema.StatusField:
+                builder.OpenComponent<StatusBadge>(0);
+                builder.AddAttribute(1, nameof(StatusBadge.Status), value is true ? "Activo" : "Inactivo");
+                builder.CloseComponent();
+                break;
+            case FieldKind.Boolean:
+                var on = value is true;
+                builder.OpenElement(3, "span");
+                builder.AddAttribute(4, "class", $"ibr-cell-bool ibr-cell-bool--{(on ? "on" : "off")}");
+                builder.AddAttribute(5, "title", $"{field.Label}: {(on ? "Sí" : "No")}");
+                builder.OpenComponent<RadzenIcon>(6);
+                builder.AddAttribute(7, nameof(RadzenIcon.Icon), on ? "visibility" : "visibility_off");
+                builder.CloseComponent();
+                builder.CloseElement();
+                break;
+            case FieldKind.MultiLookup when value is string joined && joined.Length > 0:
+                BuildPills(builder, joined);
+                break;
+            default:
+                var raw = Format(field, value);
+                if (field.Kind is FieldKind.Text or FieldKind.Choice or FieldKind.Lookup && CatalogUiText.TryStatusLabel(raw, out var statusLabel))
+                {
+                    builder.OpenComponent<StatusBadge>(7);
+                    builder.AddAttribute(8, nameof(StatusBadge.Status), statusLabel);
+                    builder.CloseComponent();
+                    break;
+                }
+
+                var cellText = field.Kind == FieldKind.Email ? raw : CatalogUiText.Display(raw) ?? raw;
+                builder.OpenElement(9, "span");
+                builder.AddAttribute(10, "class", "ibr-text-muted ibr-cell-truncate2");
+                builder.AddAttribute(11, "title", cellText);
+                builder.AddContent(12, cellText);
+                builder.CloseElement();
+                break;
+        }
+    };
+
+    private static void BuildPills(RenderTreeBuilder builder, string joinedText)
+    {
+        var names = joinedText.Split(", ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var fullText = CatalogUiText.Display(joinedText) ?? joinedText;
+
+        builder.OpenElement(3, "div");
+        builder.AddAttribute(4, "class", "ibr-cell-pills");
+        builder.AddAttribute(5, "title", fullText);
+
+        for (var index = 0; index < Math.Min(names.Length, 2); index++)
+        {
+            builder.OpenElement(6 + index, "span");
+            builder.AddAttribute(7 + index, "class", "ibr-pill");
+            builder.AddContent(8 + index, CatalogUiText.Display(names[index]));
+            builder.CloseElement();
+        }
+
+        if (names.Length > 2)
+        {
+            builder.OpenElement(20, "span");
+            builder.AddAttribute(21, "class", "ibr-pill ibr-pill--more");
+            builder.AddContent(22, $"+{names.Length - 2} más");
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
+    }
+
+    private static string Format(FieldSchema field, object? value) => value switch
+    {
+        null => "—",
+        string text when text.Length == 0 => "—",
+        DateTime date when field.Kind == FieldKind.Date => date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
+        DateTime date => date.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture),
+        DateOnly date => date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
+        decimal number => number.ToString("N2", CultureInfo.GetCultureInfo("es-PE")),
+        _ => value.ToString() ?? "—"
+    };
+}

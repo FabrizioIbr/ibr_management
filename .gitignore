@@ -480,3 +480,7 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+
+# Datos locales de la aplicación (config de vacaciones, etc.)
+App_Data/

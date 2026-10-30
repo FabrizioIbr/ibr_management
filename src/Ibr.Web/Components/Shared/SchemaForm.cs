@@ -7,7 +7,7 @@ namespace Ibr.Web.Components.Shared;
 public static class SchemaForm
 {
     /// <summary>
-    /// Abre <see cref="SchemaFormDialog"/>. <paramref name="record"/> null = crear.
+    /// Abre <see cref="SchemaFormDialog"/>. <paramref name="record"/> null = crear (con <paramref name="prefill"/> opcional).
     /// Devuelve true si se guardó. El diálogo permanece abierto y muestra el error si <paramref name="save"/> falla.
     /// </summary>
     public static async Task<bool> OpenAsync(
@@ -15,10 +15,15 @@ public static class SchemaForm
         CatalogSchema schema,
         CatalogRow? record,
         IReadOnlyDictionary<string, IReadOnlyList<LookupOption>> lookups,
-        Func<CatalogRow, Task<SaveResult>> save)
+        Func<CatalogRow, Task<SaveResult>> save,
+        CatalogRow? prefill = null)
     {
         var isNew = record is null;
         var values = isNew ? NewValues(schema) : new Dictionary<string, object?>(record!);
+        if (isNew && prefill is not null)
+        {
+            foreach (var (key, value) in prefill) values[key] = value;
+        }
 
         var result = await dialogs.OpenAsync<SchemaFormDialog>(
             isNew ? schema.NewText : $"Editar {schema.Singular}",

@@ -1,18 +1,46 @@
+using Azure.Extensions.AspNetCore.Configuration.Secrets;
+using Azure.Identity;
 using Ibr.Api.Controllers;
 using Ibr.Application;
 using Ibr.Infrastructure;
+using Ibr.Web;
 using Ibr.Web.Components;
+using Ibr.Web.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Radzen;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var keyVaultUri = builder.Configuration["KeyVault:Uri"];
+if (!string.IsNullOrWhiteSpace(keyVaultUri))
+{
+    builder.Configuration.AddAzureKeyVault(new Uri(keyVaultUri), new DefaultAzureCredential());
+}
+
+var dotEnv = DotEnv.Read(builder.Environment.ContentRootPath);
+var bukSecrets = new Dictionary<string, string?>();
+if (dotEnv.TryGetValue("AUTH_TOKEN", out var authToken) && !string.IsNullOrWhiteSpace(authToken))
+{
+    bukSecrets["Buk:Token"] = authToken;
+}
+
+if (dotEnv.TryGetValue("BUK_BASE_URL", out var bukBaseUrl) && !string.IsNullOrWhiteSpace(bukBaseUrl))
+{
+    bukSecrets["Buk:BaseUrl"] = bukBaseUrl;
+}
+
+if (bukSecrets.Count > 0)
+{
+    builder.Configuration.AddInMemoryCollection(bukSecrets);
+}
 
 builder.Services
     .AddRazorComponents()
     .AddInteractiveServerComponents();
 
 builder.Services.AddApplication();
-builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddInfrastructure(builder.Configuration, builder.Environment.ContentRootPath);
+builder.Services.AddHostedService<BukAutoSyncService>();
 builder.Services.AddScoped<DialogService>();
 builder.Services.AddScoped<NotificationService>();
 builder.Services.AddScoped<TooltipService>();

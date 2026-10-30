@@ -1,0 +1,205 @@
+@* Vista de Secciones: selector buscable de portal + grilla con solo las secciones del portal elegido.
+   Reemplaza al grid genérico de /admin/secciones (la ruta literal tiene prioridad sobre /admin/{Slug}). *@
+@page "/admin/secciones"
+@layout PortalLayout
+@attribute [Authorize]
+@using Ibr.Application.Portals
+@using Ibr.Application.Maestros
+@using Microsoft.AspNetCore.WebUtilities
+@inject IMaestrosService MaestrosService
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+@inject NavigationManager Navigation
+@implements IDisposable
+
+@if (portalesSchema is null || seccionesSchema is null)
+{
+    <PageTitle>Secciones</PageTitle>
+    <PageHeader Title="Secciones" Subtitle="Catálogo no disponible." />
+}
+else
+{
+    <PageTitle>@($"Secciones{portalSuffix} · {(Portal?.Name ?? "Gestión Maestros")}")</PageTitle>
+
+    <nav class="ibr-breadcrumb" aria-label="Ruta">
+        <a href="@(Portal?.Href ?? "/dashboard")">@(Portal?.Name ?? "Portales")</a><RadzenIcon Icon="chevron_right" /><span>@seccionesSchema.Group</span><RadzenIcon Icon="chevron_right" /><span>@seccionesSchema.Label</span>
+    </nav>
+
+    <PageHeader Title="@(selected is null ? "Secciones" : $"Secciones de: {TitleOf(selected)}")"
+                Subtitle="@(selected is null ? "Selecciona un portal para gestionar sus páginas." : (DescriptionOf(selected) ?? seccionesSchema.Description))" />
+
+    <div class="ibr-toolbar-row">
+        <RadzenDropDown TValue="int" Data="@PortalOptions"
+                        TextProperty="@nameof(PortalChoice.Name)" ValueProperty="@nameof(PortalChoice.Id)"
+                        Value="@selectedPortalId" ValueChanged="@((int id) => Select(id))"
+                        AllowFiltering="true" FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive"
+                        Placeholder="Seleccionar portal…" class="ibr-portal-picker" aria-label="Cambiar de portal" />
+        @if (selected is not null)
+        {
+            <RadzenButton Text="@($"Nueva sección en {TitleOf(selected)}")" Icon="add" ButtonStyle="ButtonStyle.Primary"
+                          Click="@(() => OpenFormAsync(null))" Disabled="@isLoading" />
+        }
+    </div>
+
+    @if (selected is null)
+    {
+        <div class="ibr-card">
+            <div class="ibr-empty">
+                <RadzenIcon Icon="apps" />
+                <strong>@(portals.Count == 0 ? "Sin portales" : "Ningún portal seleccionado")</strong>
+                <span>@(portals.Count == 0 ? "Crea primero un portal en Gestión Maestros → Portales." : "Elige un portal arriba para ver sus secciones.")</span>
+            </div>
+        </div>
+    }
+    else
+    {
+        <SchemaDataGrid Schema="@seccionesSchema" Records="@VisibleSections" Loading="@isLoading"
+                        Lookups="@lookups" FilterExclude="@excludedFilters" ShowDetailsAction="false"
+                        OnEdit="@OpenFormAsync" OnDetails="@OpenDetailAsync" OnDelete="@DeleteAsync" />
+    }
+}
+
+@code {
+    [CascadingParameter] private PortalDto? Portal { get; set; }
+
+    private static readonly string[] excludedFilters = ["PortalId"];
+
+    private sealed record PortalChoice(int Id, string Name);
+
+    private CatalogSchema? portalesSchema;
+    private CatalogSchema? seccionesSchema;
+    private IReadOnlyList<CatalogRow> portals = [];
+    private IReadOnlyList<CatalogRow> sections = [];
+    private IReadOnlyDictionary<string, IReadOnlyList<LookupOption>> lookups = new Dictionary<string, IReadOnlyList<LookupOption>>();
+    private CatalogRow? selected;
+    private int selectedPortalId;
+    private bool isLoading = true;
+
+    private string portalSuffix => selected is null ? string.Empty : $" de {TitleOf(selected)}";
+
+    private IReadOnlyList<PortalChoice> PortalOptions =>
+        [.. Portals.Select(portal => new PortalChoice(int.Parse(PortalKey(portal)!), TitleOf(portal)))];
+
+    private IReadOnlyList<CatalogRow> VisibleSections => selected is null ? [] : SectionsOf(selected);
+
+    protected override async Task OnInitializedAsync()
+    {
+        portalesSchema = MaestrosService.FindCatalog("portales");
+        seccionesSchema = MaestrosService.FindCatalog("secciones");
+        if (portalesSchema is null || seccionesSchema is null) return;
+
+        portals = await MaestrosService.GetRecordsAsync("portales");
+        await ReloadSectionsAsync();
+        Navigation.LocationChanged += OnLocationChanged;
+        ApplySelection(Navigation.Uri);
+    }
+
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+
+    private async Task ReloadSectionsAsync()
+    {
+        isLoading = true;
+        sections = await MaestrosService.GetRecordsAsync("secciones");
+        lookups = await MaestrosService.GetLookupsAsync("secciones");
+        isLoading = false;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        ApplySelection(args.Location);
+        StateHasChanged();
+    }
+
+    private void ApplySelection(string uri)
+    {
+        if (portals.Count == 0)
+        {
+            SelectRecord(null);
+            return;
+        }
+
+        var query = new Uri(uri).Query;
+        if (QueryHelpers.ParseQuery(query).TryGetValue("portal_id", out var raw)
+            && int.TryParse(raw, out var id)
+            && portals.FirstOrDefault(portal => string.Equals(PortalKey(portal), id.ToString(), StringComparison.Ordinal)) is { } match)
+        {
+            SelectRecord(match);
+            return;
+        }
+
+        if (selected is null || !portals.Contains(selected)) SelectRecord(Portals.First());
+    }
+
+    private void SelectRecord(CatalogRow? portal)
+    {
+        selected = portal;
+        selectedPortalId = portal is null ? 0 : int.Parse(PortalKey(portal)!);
+    }
+
+    private IEnumerable<CatalogRow> Portals => portals.OrderBy(TitleOf);
+
+    private void Select(int portalId)
+    {
+        var portal = portals.FirstOrDefault(candidate => string.Equals(PortalKey(candidate), portalId.ToString(), StringComparison.Ordinal));
+        if (portal is null || ReferenceEquals(selected, portal)) return;
+
+        selected = portal;
+        Navigation.NavigateTo($"/admin/secciones?portal_id={portalId}");
+    }
+
+    private string? PortalKey(CatalogRow portal) => portal[portalesSchema!.KeyField]?.ToString();
+
+    private IReadOnlyList<CatalogRow> SectionsOf(CatalogRow portal) =>
+        [.. sections.Where(section => string.Equals(section["PortalId"]?.ToString(), PortalKey(portal), StringComparison.Ordinal))];
+
+    private string TitleOf(CatalogRow row) => CatalogUiText.Display(row[CatalogSchema.TitleKey] as string) ?? "—";
+
+    private string? DescriptionOf(CatalogRow row) => row.TryGetValue("Description", out var value) ? value?.ToString() : null;
+
+    private async Task OpenFormAsync(CatalogRow? record)
+    {
+        var prefill = record is null && selected is not null
+            ? new Dictionary<string, object?> { ["PortalId"] = selected[portalesSchema!.KeyField] }
+            : null;
+
+        var saved = await SchemaForm.OpenAsync(DialogService, seccionesSchema!, record, lookups,
+            values => MaestrosService.SaveAsync(seccionesSchema!.Slug, values), prefill);
+
+        if (saved)
+        {
+            NotificationService.Notify(NotificationSeverity.Success, record is null ? seccionesSchema!.CreatedText : "Cambios guardados");
+            await ReloadSectionsAsync();
+        }
+    }
+
+    private async Task DeleteAsync(CatalogRow record)
+    {
+        var confirmed = await DialogService.Confirm(
+            $"Se eliminará «{record[CatalogSchema.TitleKey]}». Esta acción no se puede deshacer.",
+            $"Eliminar {seccionesSchema!.Singular}",
+            new ConfirmOptions { OkButtonText = "Eliminar", CancelButtonText = "Cancelar", CssClass = "ibr-dialog" });
+        if (confirmed != true) return;
+
+        var result = await MaestrosService.DeleteAsync(seccionesSchema.Slug, record[seccionesSchema.KeyField]!);
+        if (result.Succeeded)
+        {
+            NotificationService.Notify(NotificationSeverity.Success, "Registro eliminado");
+            await ReloadSectionsAsync();
+        }
+        else
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "No se pudo eliminar", result.Error ?? string.Empty);
+        }
+    }
+
+    private Task OpenDetailAsync(CatalogRow record) =>
+        DialogService.OpenAsync<SchemaDetailDialog>(
+            $"Detalle de {seccionesSchema!.Singular}",
+            new Dictionary<string, object?>
+            {
+                [nameof(SchemaDetailDialog.Schema)] = seccionesSchema,
+                [nameof(SchemaDetailDialog.Record)] = record,
+                [nameof(SchemaDetailDialog.OnEdit)] = EventCallback.Factory.Create<CatalogRow>(this, OpenFormAsync)
+            },
+            new DialogOptions { Width = "min(760px, 94vw)", Resizable = true, Draggable = true, CssClass = "ibr-dialog ibr-dialog--detail" });
+}

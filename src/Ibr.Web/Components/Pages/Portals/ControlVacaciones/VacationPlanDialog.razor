@@ -1,0 +1,97 @@
+@using Ibr.Application.Vacations
+@inject IVacationTeamService TeamService
+@inject DialogService DialogService
+
+<div class="ibr-plan">
+    <p class="ibr-plan__hint">
+        Registra las fechas del plan de vacaciones de <strong>@EmployeeName</strong>.
+        La solicitud quedará creada en estado <strong>Preaprobada</strong>.
+    </p>
+
+    <div class="ibr-plan__fields">
+        <div class="ibr-field">
+            <label class="ibr-field__label">Inicio</label>
+            <RadzenDatePicker TValue="DateOnly?" @bind-Value="start" Min="@minDate" DateFormat="dd/MM/yyyy" Placeholder="dd/mm/aaaa" />
+        </div>
+        <div class="ibr-field">
+            <label class="ibr-field__label">Fin</label>
+            <RadzenDatePicker TValue="DateOnly?" @bind-Value="end" Min="@minEnd" DateFormat="dd/MM/yyyy" Placeholder="dd/mm/aaaa" />
+        </div>
+    </div>
+
+    @if (start is not null && end is not null)
+    {
+        <div class="ibr-plan__days">
+            <span>Calendario: <strong>@CalendarDays</strong></span>
+            <span>Hábiles (aprox.): <strong>@(PreviewWorkingDays)</strong></span>
+        </div>
+    }
+
+    @if (error is not null)
+    {
+        <div class="ibr-plan__error"><RadzenIcon Icon="error" /><span>@error</span></div>
+    }
+
+    <div class="ibr-plan__footer">
+        <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Click="@(() => DialogService.Close(false))" Disabled="@saving" />
+        <RadzenButton Text="Guardar plan" Icon="event_available" ButtonStyle="ButtonStyle.Primary" Click="SaveAsync"
+                      IsBusy="@saving" BusyText="Guardando…" Disabled="@(saving || start is null || end is null)" />
+    </div>
+</div>
+
+@code {
+    [Parameter] public int EmployeeId { get; set; }
+    [Parameter] public string EmployeeName { get; set; } = string.Empty;
+    [Parameter] public int BossEmployeeId { get; set; }
+
+    private readonly DateOnly today = DateOnly.FromDateTime(DateTime.Now);
+    private DateOnly? start;
+    private DateOnly? end;
+    private bool saving;
+    private string? error;
+
+    private DateTime? minDate => today.ToDateTime(TimeOnly.MinValue);
+
+    private DateTime? minEnd => start is { } from && from > today ? from.ToDateTime(TimeOnly.MinValue) : today.ToDateTime(TimeOnly.MinValue);
+
+    private int CalendarDays => start is { } from && end is { } to && to >= from ? to.DayNumber - from.DayNumber + 1 : 0;
+
+    private int PreviewWorkingDays
+    {
+        get
+        {
+            if (start is not { } from || end is not { } to || to < from) return 0;
+            var count = 0;
+            for (var day = from; day <= to; day = day.AddDays(1))
+            {
+                if (day.DayOfWeek is not (DayOfWeek.Saturday or DayOfWeek.Sunday)) count++;
+            }
+
+            return count;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (start is not { } from || end is not { } to) return;
+
+        saving = true;
+        error = null;
+        try
+        {
+            var result = await TeamService.PlanificarAsync(BossEmployeeId, EmployeeId, from, to, unrestricted: false);
+            if (result.Succeeded)
+            {
+                DialogService.Close(true);
+            }
+            else
+            {
+                error = result.Error ?? "No se pudo guardar el plan.";
+            }
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+}

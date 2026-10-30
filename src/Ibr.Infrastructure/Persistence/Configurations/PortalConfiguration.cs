@@ -20,20 +20,22 @@ public class PortalConfiguration : IEntityTypeConfiguration<Portal>
         builder.HasOne(portal => portal.Role).WithMany()
             .HasForeignKey(portal => portal.RoleId).OnDelete(DeleteBehavior.ClientSetNull);
 
-        // UserPortals.UserId también es NVARCHAR(450) con el UserID (int) de Users.
+        // La tabla puente UserPortals usa INT y referencia la nueva tabla Usuarios (AppUser).
         builder.HasMany(portal => portal.Users)
             .WithMany()
             .UsingEntity<Dictionary<string, object>>(
                 "UserPortal",
-                right => right.HasOne<User>().WithMany().HasForeignKey("UserId").OnDelete(DeleteBehavior.Cascade),
+                right => right.HasOne<AppUser>().WithMany().HasForeignKey("UserId")
+                    .HasConstraintName("FK_UserPortals_Users").OnDelete(DeleteBehavior.NoAction),
                 left => left.HasOne<Portal>().WithMany().HasForeignKey("PortalId")
-                    .OnDelete(DeleteBehavior.Cascade).HasConstraintName("FK_UserPortals_Portals"),
+                    .HasConstraintName("FK_UserPortals_Portals").OnDelete(DeleteBehavior.NoAction),
                 join =>
                 {
                     join.HasKey("UserId", "PortalId").HasName("PK_UserPortals");
                     join.ToTable("UserPortals");
-                    join.IndexerProperty<int>("UserId").HasMaxLength(450).HasConversion<string>();
-                    join.IndexerProperty<DateTime>("GrantedAt").HasDefaultValueSql("(getdate())");
+                    join.IndexerProperty<int>("UserId").HasColumnName("UserID");
+                    join.IndexerProperty<int>("PortalId").HasColumnName("PortalID");
+                    join.IndexerProperty<DateTime>("AssignedAt").HasDefaultValueSql("(getdate())");
                 });
     }
 }

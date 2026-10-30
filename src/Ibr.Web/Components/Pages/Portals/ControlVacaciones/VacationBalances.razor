@@ -1,0 +1,236 @@
+@page "/control-vacaciones/planificacion"
+@layout PortalLayout
+@attribute [Authorize]
+@using System.Globalization
+@using System.Text
+@using Ibr.Application.Vacations
+@inject IVacationTeamService TeamService
+@inject IJSRuntime JS
+@inject NotificationService NotificationService
+@inject DialogService DialogService
+
+<PageTitle>Planificación de vacaciones</PageTitle>
+
+<nav class="ibr-breadcrumb" aria-label="Ruta">
+    <a href="/dashboard">Portales</a><RadzenIcon Icon="chevron_right" /><span>Control de vacaciones</span><RadzenIcon Icon="chevron_right" /><span>Planificación de vacaciones</span>
+</nav>
+
+<PageHeader Eyebrow="Control de vacaciones" Title="Planificación de Vacaciones" Subtitle="Días pendientes y próximos a vencer según el cálculo FIFO.">
+    <Actions>
+        <RadzenButton Text="Exportar a Excel" Icon="download" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Click="@ExportCsvAsync" Disabled="@(loading || Visible.Count == 0)" />
+    </Actions>
+</PageHeader>
+
+<div class="ibr-card">
+    <div class="ibr-filterbar">
+        <div class="ibr-field">
+            <label class="ibr-field__label">Buscar colaborador</label>
+            <RadzenTextBox @bind-Value="searchTerm" Immediate="true" Placeholder="Nombre o correo…" />
+        </div>
+        <div class="ibr-field" style="max-width:220px">
+            <label class="ibr-field__label">Nivel de riesgo</label>
+            <RadzenDropDown @bind-Value="riskFilter" Data="@RiskOptions" TextProperty="Label" ValueProperty="Value" style="width:100%" />
+        </div>
+    </div>
+</div>
+
+@if (loading)
+{
+    <div class="ibr-skeleton" style="min-height:340px"></div>
+}
+else
+{
+    <div class="ibr-card ibr-card--flush">
+        <div class="ibr-card__toolbar">
+            <span class="ibr-card__toolbar-meta">@Visible.Count de @balances.Count colaboradores</span>
+        </div>
+        <RadzenDataGrid TItem="VacationBalanceDto" Data="@Visible" AllowPaging="true" AllowSorting="true" PageSize="12"
+                        PagerHorizontalAlign="HorizontalAlign.Right" ShowPagingSummary="true" PagingSummaryFormat="Página {0} de {1}"
+                        RowRender="HighlightRisk">
+            <EmptyTemplate>
+                <div class="ibr-empty">
+                    <RadzenIcon Icon="search_off" />
+                    <strong>Sin resultados</strong>
+                    <span>Ningún colaborador coincide con la búsqueda o el filtro de riesgo.</span>
+                </div>
+            </EmptyTemplate>
+            <Columns>
+                <RadzenDataGridColumn TItem="VacationBalanceDto" Title="Colaborador" Property="FullName" MinWidth="240px">
+                    <Template Context="row">
+                        <div class="ibr-cell-primary">
+                            <Avatar Name="@row.FullName" />
+                            <div>
+                                <div class="ibr-balance-name">
+                                    @row.FullName
+                                    @if (row.HasActiveRequests)
+                                    {
+                                        <span class="ibr-active-check" title="@($"Tiene solicitudes en curso ({VacationUi.Days(row.DaysPreApproved)} días preaprobados)")">
+                                            <RadzenIcon Icon="check_circle" />
+                                        </span>
+                                    }
+                                </div>
+                                <div class="ibr-balance-email">@row.Email</div>
+                            </div>
+                        </div>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="VacationBalanceDto" Title="Jefe directo" Property="BossName" MinWidth="180px">
+                    <Template Context="row">@(string.IsNullOrWhiteSpace(row.BossName) ? "—" : row.BossName)</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="VacationBalanceDto" Title="Pendientes" Property="DaysPending" Width="110px" TextAlign="TextAlign.Right">
+                    <Template Context="row">
+                        <strong>@VacationUi.Days(row.DaysPending)</strong>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="VacationBalanceDto" Title="Próx. a vencer" Property="DaysSoonToExpire" Width="130px" TextAlign="TextAlign.Right">
+                    <Template Context="row">
+                        @if (row.DaysSoonToExpire > 0)
+                        {
+                            <span style="color:#B45309;font-weight:700">@VacationUi.Days(row.DaysSoonToExpire)</span>
+                        }
+                        else
+                        {
+                            <span class="ibr-text-muted">0</span>
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="VacationBalanceDto" Title="Vencimiento" Property="NextExpiration" Width="120px">
+                    <Template Context="row">@VacationUi.Date(row.NextExpiration)</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="VacationBalanceDto" Title="Riesgo" Property="RiskLevel" Width="120px">
+                    <Template Context="row">
+                        <span class="ibr-badge ibr-badge--@VacationUi.Risk(row.RiskLevel).BadgeClass">@VacationUi.Risk(row.RiskLevel).Label</span>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="VacationBalanceDto" Width="190px" TextAlign="TextAlign.Right" Sortable="false" Filterable="false">
+                    <Template Context="row">
+                        <div class="ibr-row-actions">
+                            <RadzenButton Text="Planificar" Icon="event_available" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small"
+                                          title="@($"Registrar fechas de vacaciones de {row.FullName}")" Click="@(() => OpenPlanAsync(row))" />
+                            <button type="button" class="ibr-detail-btn" title="Ver detalle de @row.FullName" aria-label="Ver detalle de @row.FullName"
+                                    @onclick="() => OpenDetailAsync(row)">
+                                @UserScanIcon
+                            </button>
+                        </div>
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    </div>
+}
+
+@code {
+    private sealed record RiskOption(string Value, string Label);
+
+    private static readonly IReadOnlyList<RiskOption> RiskOptions =
+    [
+        new("all", "Todos"),
+        new("normal", "Normal"),
+        new("alerta", "Alerta"),
+        new("critico", "Crítico"),
+        new("vencido", "Vencido")
+    ];
+
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = null!;
+
+    private IReadOnlyList<VacationBalanceDto> balances = [];
+    private bool loading = true;
+    private string searchTerm = string.Empty;
+    private string riskFilter = "all";
+    private int bossEmployeeId;
+
+    private static readonly MarkupString UserScanIcon = new(
+        """<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-user-scan"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M10 9a2 2 0 1 0 4 0a2 2 0 0 0 -4 0"/><path d="M8 16a2 2 0 0 1 2 -2h4a2 2 0 0 1 2 2"/><path d="M3 7v-2a2 2 0 0 1 2 -2h2"/><path d="M3 17v2a2 2 0 0 0 2 2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M17 21h2a2 2 0 0 0 2 -2v-2"/></svg>""");
+
+    private Task OpenDetailAsync(VacationBalanceDto row) =>
+        DialogService.OpenAsync<CollaboratorDetailDialog>(
+            $"Detalle de {row.FullName}",
+            new Dictionary<string, object?>
+            {
+                [nameof(CollaboratorDetailDialog.EmployeeId)] = row.EmployeeId,
+                [nameof(CollaboratorDetailDialog.BossEmployeeId)] = bossEmployeeId,
+                [nameof(CollaboratorDetailDialog.OnChanged)] = EventCallback.Factory.Create(this, LoadAsync)
+            },
+            new DialogOptions { Width = "min(1080px, 96vw)", Resizable = true, Draggable = true, ShowClose = true, CssClass = "ibr-dialog" });
+
+    private async Task OpenPlanAsync(VacationBalanceDto row)
+    {
+        var saved = await DialogService.OpenAsync<VacationPlanDialog>(
+            $"Planificar vacaciones · {row.FullName}",
+            new Dictionary<string, object?>
+            {
+                [nameof(VacationPlanDialog.EmployeeId)] = row.EmployeeId,
+                [nameof(VacationPlanDialog.EmployeeName)] = row.FullName,
+                [nameof(VacationPlanDialog.BossEmployeeId)] = bossEmployeeId
+            },
+            new DialogOptions { Width = "min(460px, 94vw)", ShowClose = true, Draggable = true, CssClass = "ibr-dialog" });
+
+        if (saved is true)
+        {
+            NotificationService.Notify(NotificationSeverity.Success, "Plan registrado", $"Vacaciones planificadas para {row.FullName}.");
+            await LoadAsync();
+        }
+    }
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        try
+        {
+            var user = (await AuthState).User;
+            bossEmployeeId = user.GetEmployeeId();
+            balances = await TeamService.GetBalancesAsync(bossEmployeeId, unrestricted: false);
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private IReadOnlyList<VacationBalanceDto> Visible => balances
+        .Where(balance => riskFilter == "all" || balance.RiskLevel == riskFilter)
+        .Where(MatchesSearch)
+        .ToList();
+
+    private bool MatchesSearch(VacationBalanceDto balance)
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm)) return true;
+        var haystack = $"{balance.FullName} {balance.Email}";
+        return searchTerm
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .All(term => haystack.Contains(term, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void HighlightRisk(RowRenderEventArgs<VacationBalanceDto> args)
+    {
+        if (args.Data is VacationBalanceDto { RiskLevel: "critico" or "vencido" })
+        {
+            args.Attributes["class"] = "ibr-row--risk";
+        }
+    }
+
+    private async Task ExportCsvAsync()
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("Colaborador;Correo;Jefe directo;Días generados;Días pendientes;Próximos a vencer;Vencimiento;Riesgo");
+        foreach (var row in Visible)
+        {
+            builder.AppendLine(string.Join(';',
+                Csv(row.FullName), Csv(row.Email), Csv(row.BossName ?? "—"),
+                row.DaysGenerated.ToString("0.##", CultureInfo.InvariantCulture),
+                row.DaysPending.ToString("0.##", CultureInfo.InvariantCulture),
+                row.DaysSoonToExpire.ToString("0.##", CultureInfo.InvariantCulture),
+                VacationUi.Date(row.NextExpiration),
+                VacationUi.Risk(row.RiskLevel).Label));
+        }
+
+        var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(builder.ToString())).ToArray();
+        await JS.InvokeVoidAsync("ibrExport.csv", "planificacion-vacaciones.csv", Convert.ToBase64String(bytes));
+        NotificationService.Notify(NotificationSeverity.Success, "Exportación lista", $"{Visible.Count} registros en planificacion-vacaciones.csv.");
+    }
+
+    private static string Csv(string value) =>
+        value.Contains(';', StringComparison.Ordinal) ? $"\"{value.Replace("\"", "\"\"")}\"" : value;
+}

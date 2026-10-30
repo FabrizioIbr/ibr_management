@@ -1,0 +1,200 @@
+@page "/control-vacaciones/excepciones"
+@layout PortalLayout
+@attribute [Authorize]
+@using Ibr.Application.Vacations
+@inject IVacationTeamService TeamService
+@inject DialogService DialogService
+
+<PageTitle>Excepciones</PageTitle>
+
+<nav class="ibr-breadcrumb" aria-label="Ruta">
+    <a href="/dashboard">Portales</a><RadzenIcon Icon="chevron_right" /><span>Control de vacaciones</span><RadzenIcon Icon="chevron_right" /><span>Excepciones</span>
+</nav>
+
+<PageHeader Eyebrow="Control de vacaciones" Title="Excepciones" Subtitle="Días vencidos o próximos a vencer y solicitudes sin responder que requieren tu atención.">
+    <Actions>
+        <RadzenButton Text="Actualizar" Icon="refresh" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Click="@LoadAsync" Disabled="@loading" />
+    </Actions>
+</PageHeader>
+
+<div class="ibr-card">
+    <div class="ibr-filterbar">
+        <div class="ibr-field">
+            <label class="ibr-field__label">Buscar colaborador</label>
+            <RadzenTextBox @bind-Value="searchTerm" Immediate="true" Placeholder="Nombre o correo…" />
+        </div>
+        <div class="ibr-field" style="max-width:250px">
+            <label class="ibr-field__label">Tipo de excepción</label>
+            <RadzenDropDown @bind-Value="kindFilter" Data="@KindOptions" TextProperty="Label" ValueProperty="Value" style="width:100%" />
+        </div>
+    </div>
+</div>
+
+@if (loading)
+{
+    <div class="ibr-skeleton" style="min-height:340px"></div>
+}
+else
+{
+    <div class="ibr-card ibr-card--flush">
+        <div class="ibr-card__toolbar">
+            <span class="ibr-card__toolbar-meta">@Visible.Count @(Visible.Count == 1 ? "excepción" : "excepciones") en @balances.Count colaboradores</span>
+        </div>
+        <RadzenDataGrid TItem="ExceptionRow" Data="@Visible" AllowPaging="true" AllowSorting="true" PageSize="12"
+                        PagerHorizontalAlign="HorizontalAlign.Right" ShowPagingSummary="true" PagingSummaryFormat="Página {0} de {1}"
+                        RowRender="HighlightDanger">
+            <EmptyTemplate>
+                <div class="ibr-empty">
+                    <RadzenIcon Icon="verified" />
+                    <strong>Sin excepciones</strong>
+                    <span>@(HasQuery ? "Ninguna excepción coincide con la búsqueda o el filtro." : "No hay días vencidos, días por vencer ni solicitudes sin responder.")</span>
+                </div>
+            </EmptyTemplate>
+            <Columns>
+                <RadzenDataGridColumn TItem="ExceptionRow" Title="Colaborador" Property="Name" MinWidth="240px">
+                    <Template Context="row">
+                        <div class="ibr-cell-primary">
+                            <Avatar Name="@row.Name" />
+                            <div>
+                                <div class="ibr-balance-name">@row.Name</div>
+                                <div class="ibr-balance-email">@row.Email</div>
+                            </div>
+                        </div>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ExceptionRow" Title="Tipo" Property="KindLabel" Width="170px">
+                    <Template Context="row">
+                        <span class="ibr-badge ibr-badge--@row.Tone">@row.KindLabel</span>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ExceptionRow" Title="Detalle" Property="Detail" MinWidth="280px">
+                    <Template Context="row">
+                        <span class="ibr-cell-truncate2" title="@row.Detail">@row.Detail</span>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ExceptionRow" Title="Fecha clave" Property="DateLabel" Width="130px" />
+                <RadzenDataGridColumn TItem="ExceptionRow" Width="64px" TextAlign="TextAlign.Center" Sortable="false" Filterable="false">
+                    <Template Context="row">
+                        <RadzenButton Icon="visibility" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small"
+                                      title="@($"Ver detalle de {row.Name}")" Click="@(() => OpenDetailAsync(row))" />
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    </div>
+}
+
+@code {
+    private sealed record ExceptionRow(
+        int EmployeeId, string Name, string Email, string Kind, string KindLabel, string Tone, string Detail, string DateLabel);
+
+    private sealed record KindOption(string Value, string Label);
+
+    private static readonly IReadOnlyList<KindOption> KindOptions =
+    [
+        new("all", "Todas"),
+        new("vencidos", "Días vencidos"),
+        new("por-vencer", "Próximos a vencer"),
+        new("pendientes", "Solicitudes sin responder")
+    ];
+
+    private const int OldPendingDays = 30;
+
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = null!;
+
+    private IReadOnlyList<VacationBalanceDto> balances = [];
+    private int bossEmployeeId;
+    private List<ExceptionRow> rows = [];
+    private bool loading = true;
+    private string searchTerm = string.Empty;
+    private string kindFilter = "all";
+
+    private bool HasQuery => !string.IsNullOrWhiteSpace(searchTerm) || kindFilter != "all";
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        try
+        {
+            var user = (await AuthState).User;
+            bossEmployeeId = user.GetEmployeeId();
+            balances = await TeamService.GetBalancesAsync(bossEmployeeId, unrestricted: false);
+            var pending = await TeamService.GetTeamRequestsAsync(bossEmployeeId, unrestricted: false, status: "solicitado", startFrom: null, startTo: null);
+            rows = BuildRows(balances, pending);
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private static List<ExceptionRow> BuildRows(IReadOnlyList<VacationBalanceDto> balances, IReadOnlyList<VacationRequestDto> pending)
+    {
+        var rows = new List<ExceptionRow>();
+
+        foreach (var balance in balances)
+        {
+            if (balance.DaysVencido > 0)
+            {
+                rows.Add(new ExceptionRow(balance.EmployeeId, balance.FullName, balance.Email, "vencidos", "Días vencidos", "danger",
+                    $"{VacationUi.Days(balance.DaysVencido)} {(balance.DaysVencido == 1 ? "día" : "días")} vencido(s)",
+                    VacationUi.Date(balance.NextExpiration)));
+            }
+            else if (balance.DaysSoonToExpire > 0)
+            {
+                rows.Add(new ExceptionRow(balance.EmployeeId, balance.FullName, balance.Email, "por-vencer", "Próximo a vencer", "warning",
+                    $"{VacationUi.Days(balance.DaysSoonToExpire)} {(balance.DaysSoonToExpire == 1 ? "día" : "días")} vencen el {VacationUi.Date(balance.NextExpiration)}",
+                    VacationUi.Date(balance.NextExpiration)));
+            }
+        }
+
+        foreach (var request in pending)
+        {
+            var waitedDays = request.RequestedAt is { } requestedAt
+                ? (DateTime.Today - requestedAt.Date).Days
+                : (int?)null;
+            var waitedText = waitedDays is { } days ? $" · sin respuesta hace {days} {(days == 1 ? "día" : "días")}" : string.Empty;
+            var tone = waitedDays > OldPendingDays ? "orange" : "info";
+
+            rows.Add(new ExceptionRow(request.EmployeeId, request.EmployeeName, request.EmployeeEmail ?? "—", "pendientes", "Solicitud sin responder", tone,
+                $"{VacationUi.Days(request.WorkingDays)} días laborables, del {VacationUi.Date(request.StartDate)} al {VacationUi.Date(request.EndDate)}{waitedText}",
+                VacationUi.Date(request.StartDate)));
+        }
+
+        return rows;
+    }
+
+    private IReadOnlyList<ExceptionRow> Visible => rows
+        .Where(row => kindFilter == "all" || row.Kind == kindFilter)
+        .Where(MatchesSearch)
+        .ToList();
+
+    private bool MatchesSearch(ExceptionRow row)
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm)) return true;
+        var haystack = $"{row.Name} {row.Email}";
+        return searchTerm
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .All(term => haystack.Contains(term, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void HighlightDanger(RowRenderEventArgs<ExceptionRow> args)
+    {
+        if (args.Data is ExceptionRow { Kind: "vencidos" })
+        {
+            args.Attributes["class"] = "ibr-row--risk";
+        }
+    }
+
+    private Task OpenDetailAsync(ExceptionRow row) =>
+        DialogService.OpenAsync<CollaboratorDetailDialog>(
+            $"Detalle de {row.Name}",
+            new Dictionary<string, object?>
+            {
+                [nameof(CollaboratorDetailDialog.EmployeeId)] = row.EmployeeId,
+                [nameof(CollaboratorDetailDialog.BossEmployeeId)] = bossEmployeeId
+            },
+            new DialogOptions { Width = "min(1080px, 96vw)", Resizable = true, Draggable = true, ShowClose = true, CssClass = "ibr-dialog" });
+}

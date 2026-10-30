@@ -37,9 +37,10 @@ public sealed class PortalServiceTests : IAsyncLifetime
             new User { UserId = AdminId, FirstName = "Ada", LastName = "Admin", Email = "ada@example.test", PositionId = 1, IsActive = true, Roles = [admin] },
             new User { UserId = CollaboratorId, FirstName = "Carl", LastName = "Collab", Email = "carl@example.test", PositionId = 1, IsActive = true, Roles = [collaborator] },
             new User { UserId = GuestId, FirstName = "Gus", LastName = "Guest", Email = "gus@example.test", PositionId = 1, IsActive = true });
+        db.AppUsers.Add(new AppUser { UserId = GuestId, Email = "gus@example.test", EmailCorporativo = "gus@example.test", IsActive = true, CreatedAt = DateTime.Now, UpdatedAt = DateTime.Now });
         await db.SaveChangesAsync();
 
-        var guest = await db.Users.FindAsync(GuestId);
+        var appGuest = await db.AppUsers.FindAsync(GuestId);
         db.Portals.AddRange(
             new Portal
             {
@@ -60,7 +61,7 @@ public sealed class PortalServiceTests : IAsyncLifetime
                     new PortalSection { Title = "Aprobaciones", Route = "/vacaciones/aprobaciones/", Status = "Activo", SectionGroup = "Equipo", DisplayOrder = 2 }
                 ]
             },
-            new Portal { PortalId = 5, Name = "Compras", ColorHex = "#000000", Status = "En construcción", Users = [guest!] },
+            new Portal { PortalId = 5, Name = "Compras", ColorHex = "#000000", Status = "En construcción", Users = [appGuest!] },
             new Portal { PortalId = 6, Name = "Inactivo", ColorHex = "#000000", Status = "Disponible", IsActive = false },
             new Portal { PortalId = 7, Name = "Borrado", ColorHex = "#000000", Status = "Disponible", DeletedAt = DateTime.Now });
         await db.SaveChangesAsync();
@@ -149,11 +150,11 @@ public sealed class PortalServiceTests : IAsyncLifetime
 
         Assert.True(created.Succeeded, created.Error);
         Assert.False(invalidStatus.Succeeded);
-        Assert.Contains("Estado", invalidStatus.Error);
+        Assert.Contains("Disponibilidad", invalidStatus.Error);
 
         var record = (await maestros.GetRecordsAsync("portales")).Single(row => (string?)row["__title"] == "Recursos Humanos");
         Assert.Equal("Collaborator", record["RoleId__text"]);
-        Assert.Equal("Gus Guest", record["Users__text"]);
+        Assert.Equal("gus@example.test", record["Users__text"]);
 
         Assert.Contains(await _service.GetPortalsAsync(CollaboratorId), portal => portal.Name == "Recursos Humanos" && portal.HasAccess);
         Assert.Contains(await _service.GetPortalsAsync(GuestId), portal => portal.Name == "Recursos Humanos" && portal.HasAccess);

@@ -1,0 +1,50 @@
+@using System.Globalization
+@using Ibr.Application.Vacations
+
+<div class="ibr-card ibr-card--flush">
+    <div class="ibr-card__toolbar">
+        <div>
+            <span class="ibr-text-muted">Solicitud</span>
+            <h2 class="ibr-section-title" style="margin-bottom:0">
+                @Request.EmployeeName
+                <span class="ibr-badge ibr-badge--@Badge.RequestedCss" style="margin-left:.5rem">@Badge.Label</span>
+            </h2>
+        </div>
+    </div>
+
+    <dl class="ibr-detail-list">
+        <dt>Empleado</dt><dd>@Request.EmployeeName</dd>
+        <dt>Correo</dt><dd>@(string.IsNullOrWhiteSpace(Request.EmployeeEmail) ? "—" : Request.EmployeeEmail)</dd>
+        <dt>ID de solicitud</dt><dd>@Request.VacationId</dd>
+        <dt>ID de empleado</dt><dd>@Request.EmployeeId</dd>
+        <dt>Inicio</dt><dd>@Format(Request.StartDate)</dd>
+        <dt>Fin</dt><dd>@Format(Request.EndDate)</dd>
+        <dt>Días hábiles</dt><dd>@Format(Request.WorkingDays)</dd>
+        <dt>Días calendario</dt><dd>@Format(Request.CalendarDays)</dd>
+        <dt>Estado</dt><dd>@Badge.Label</dd>
+        <dt>Tipo de vacación</dt><dd>@(Request.VacationTypeId?.ToString() ?? "—")</dd>
+        <dt>Solicitada el</dt><dd>@Format(Request.RequestedAt)</dd>
+        <dt>Aprobada el</dt><dd>@Format(Request.ApprovedAt)</dd>
+    </dl>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public VacationRequestDto Request { get; set; } = null!;
+
+    private (string RequestedCss, string Label) Badge => Request.Status.Trim().ToLowerInvariant() switch
+    {
+        "approved" => ("success", "Aprobada"),
+        "submitted" => ("warning", "Pendiente"),
+        "pre_approved" => ("warning", "Preaprobada"),
+        "signature_required" => ("info", "Requiere firma"),
+        "rejected" => ("danger", "Rechazada"),
+        _ => ("neutral", Request.Status)
+    };
+
+    private static string Format(DateOnly date) => date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+
+    private static string Format(decimal value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static string Format(DateTime? value) =>
+        value?.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture) ?? "—";
+}

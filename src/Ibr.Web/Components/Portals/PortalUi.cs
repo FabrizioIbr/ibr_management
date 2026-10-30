@@ -33,6 +33,14 @@ public static partial class PortalUi
     public static int GetUserId(this ClaimsPrincipal user) =>
         int.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : 0;
 
+    /// <summary>EmployeeID vinculado en Usuarios (claim employee_id) o 0 si el usuario no es colaborador.</summary>
+    public static int GetEmployeeId(this ClaimsPrincipal user) =>
+        int.TryParse(user.FindFirstValue("employee_id"), out var id) ? id : 0;
+
+    /// <summary>Rol con alcance total sobre el portal de vacaciones.</summary>
+    public static bool IsVacationAdmin(this ClaimsPrincipal user) =>
+        user.IsInRole("System_Admin") || user.IsInRole("RRHH");
+
     [GeneratedRegex("^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")]
     private static partial Regex HexColor();
 }

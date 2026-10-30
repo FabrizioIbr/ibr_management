@@ -1,0 +1,174 @@
+@page "/control-vacaciones/dashboard"
+@layout PortalLayout
+@attribute [Authorize]
+@using System.Globalization
+@using System.Text
+@using Ibr.Application.Vacations
+@inject IVacationTeamService TeamService
+
+<PageTitle>Dashboard de vacaciones</PageTitle>
+
+<nav class="ibr-breadcrumb" aria-label="Ruta">
+    <a href="/dashboard">Portales</a><RadzenIcon Icon="chevron_right" /><span>Control de vacaciones</span><RadzenIcon Icon="chevron_right" /><span>Dashboard</span>
+</nav>
+
+<PageHeader Eyebrow="Control de vacaciones" Title="Dashboard del equipo" Subtitle="Estado de los saldos vacacionales del equipo a tu cargo.">
+    <Actions>
+        <RadzenButton Text="Actualizar" Icon="refresh" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Click="@LoadAsync" Disabled="@loading" />
+    </Actions>
+</PageHeader>
+
+@if (noAccess)
+{
+    <div class="ibr-card ibr-empty">
+        <RadzenIcon Icon="link_off" />
+        <strong>Tu usuario no está vinculado a un empleado</strong>
+        <span>Pide a un administrador vincular tu cuenta de <code>Usuarios</code> con tu ficha de <code>Empleados</code>.</span>
+    </div>
+}
+else if (loading)
+{
+    <div class="ibr-stats">
+        <div class="ibr-skeleton"></div><div class="ibr-skeleton"></div><div class="ibr-skeleton"></div><div class="ibr-skeleton"></div>
+    </div>
+    <div class="ibr-card-grid">
+        <div class="ibr-skeleton" style="min-height:260px"></div>
+        <div class="ibr-skeleton" style="min-height:260px"></div>
+    </div>
+}
+else if (dashboard is not null)
+{
+    <div class="ibr-stats">
+        <StatCard Label="Colaboradores" Value="@dashboard.TeamSize.ToString()" Icon="groups" />
+        <StatCard Label="Días pendientes del equipo" Value="@VacationUi.Days(dashboard.TotalPendingDays)" Icon="hourglass_top" />
+        <StatCard Label="Días próximos a vencer" Value="@VacationUi.Days(dashboard.TotalSoonToExpireDays)" Icon="event_upcoming" />
+        <StatCard Label="En riesgo crítico o vencido" Value="@dashboard.MembersAtRisk.ToString()" Icon="local_fire_department" Tone="@(dashboard.MembersAtRisk > 0 ? null : "success")" />
+    </div>
+
+    @if (dashboard.TeamSize == 0)
+    {
+        <div class="ibr-card ibr-empty">
+            <RadzenIcon Icon="groups" />
+            <strong>Tu equipo aún no tiene colaboradores</strong>
+            <span>Cuando tengas subordinados activos en Buk aparecerán aquí.</span>
+        </div>
+    }
+    else
+    {
+        <div class="ibr-card-grid">
+            <div class="ibr-card">
+                <h2 class="ibr-section-title">Distribución por nivel de riesgo</h2>
+                <div class="ibr-donut-wrap">
+                    <div class="ibr-donut" style="@DonutStyle()" role="img" aria-label="Distribución de riesgo">
+                        <div class="ibr-donut__hole">
+                            <div>
+                                <div class="ibr-donut__value">@dashboard.TeamSize</div>
+                                <div class="ibr-donut__label">colaboradores</div>
+                            </div>
+                        </div>
+                    </div>
+                    <ul class="ibr-legend">
+                        @foreach (var (level, color) in Legend)
+                        {
+                            <li><span class="ibr-legend__dot" style="background:@color"></span>@VacationUi.Risk(level).Label <span class="ibr-legend__count">@dashboard.RiskCounts.GetValueOrDefault(level)</span></li>
+                        }
+                    </ul>
+                </div>
+            </div>
+
+            <div class="ibr-card">
+                <h2 class="ibr-section-title">Top 5 · días en rojo <span>@dashboard.TopCritical.Count</span></h2>
+                @if (dashboard.TopCritical.Count == 0)
+                {
+                    <div class="ibr-empty">
+                        <RadzenIcon Icon="verified" />
+                        <strong>Sin días críticos</strong>
+                        <span>Ningún colaborador tiene días vencidos o próximos a vencer.</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="ibr-top-list">
+                        @foreach (var member in dashboard.TopCritical)
+                        {
+                            <div class="ibr-top-item">
+                                <div class="ibr-top-item__meta">
+                                    <Avatar Name="@member.FullName" />
+                                    <span class="ibr-top-item__name">@member.FullName</span>
+                                </div>
+                                <span class="ibr-top-item__days">@VacationUi.Days(member.DaysVencido + member.DaysCritico) días</span>
+                                <span class="ibr-badge ibr-badge--@VacationUi.Risk(member.RiskLevel).BadgeClass">@VacationUi.Risk(member.RiskLevel).Label</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = null!;
+
+    private static readonly (string Level, string Color)[] Legend =
+    [
+        ("normal", VacationUi.ColorNormal),
+        ("alerta", VacationUi.ColorAlerta),
+        ("critico", VacationUi.ColorCritico),
+        ("vencido", VacationUi.ColorVencido)
+    ];
+
+    private VacationDashboardDto? dashboard;
+    private bool loading = true;
+    private bool noAccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthState).User;
+        if (user.GetEmployeeId() <= 0)
+        {
+            noAccess = true;
+            loading = false;
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        var user = (await AuthState).User;
+        try
+        {
+            dashboard = await TeamService.GetDashboardAsync(user.GetEmployeeId(), unrestricted: false);
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private string DonutStyle()
+    {
+        var total = dashboard?.TeamSize ?? 0;
+        if (dashboard is null || total == 0)
+        {
+            return "background: conic-gradient(#E2E8F0 0deg 360deg);";
+        }
+
+        var segments = new StringBuilder();
+        var accumulated = 0;
+        foreach (var (level, color) in Legend)
+        {
+            var count = dashboard.RiskCounts.GetValueOrDefault(level);
+            if (count == 0) continue;
+            var start = accumulated * 360d / total;
+            accumulated += count;
+            var end = accumulated * 360d / total;
+            segments.Append(CultureInfo.InvariantCulture, $"{color} {start:0.###}deg {end:0.###}deg, ");
+        }
+
+        return $"background: conic-gradient({segments.ToString().TrimEnd(' ', ',')});";
+    }
+}

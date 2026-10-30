@@ -28,7 +28,8 @@
 | Icono | `Components/Shared/IconView.razor` | Pinta un icono guardado en BD: nombre Material (`work`) o código SVG (p. ej. Tabler). El SVG se valida (`SvgIcon`); si no es seguro se usa un icono de respaldo. |
 | Encabezado | `Components/Shared/PageHeader.razor` | `Eyebrow`, `Title`, `Subtitle`, slot `Actions`. |
 | KPI | `Components/Shared/StatCard.razor` | `Label`, `Value`, `Icon`, `Tone` (`success` / `muted`). |
-| **Grid estándar** | `Components/Shared/SchemaDataGrid.razor` | Tarjeta + buscador + paginación + orden + estado vacío + acciones editar/eliminar. |
+| **Grid estándar** | `Components/Shared/SchemaDataGrid.razor` | Tarjeta + buscador + panel flotante de filtros (multi-selección y rangos de fecha) + agrupación acordeón (`GroupField`) + paginación + acciones editar/eliminar y enlace extra por fila (`RowLinkHref`, ej. Portales → "Gestionar secciones"). |
+| Vista maestra–detalle | `Components/Pages/PortalSections.razor` | `/admin/secciones` (ruta literal, sustituye al grid genérico): lista de portales a la izquierda, solo sus secciones a la derecha; "+ Nueva sección en {portal}" ya trae el portal preseleccionado. Único catálogo con vista propia; los demás siguen en `MasterData`. |
 | **Formulario popup** | `Components/Shared/SchemaFormDialog.razor` + `SchemaForm.cs` | Campos generados desde el schema, validación, errores del servidor, botón con estado "Guardando…". |
 | Badge de estado | `Components/Shared/StatusBadge.razor` | "Activo" → verde, "Inactivo" → gris, "Rechazado/Bloqueado" → rojo. |
 | Avatar | `Components/Shared/Avatar.razor` | Iniciales del nombre. |
@@ -123,10 +124,11 @@ Listo: `/admin/departamentos` muestra grid, KPIs y formulario, y aparece en el s
 
 | Miembro | Para qué |
 |---|---|
-| `.Field(prop, label, kind?, grid, form, options?)` | Campo escalar. El tipo se infiere de EF; `kind` solo para forzar (`FieldKind.Email`, `FieldKind.Date`, `FieldKind.LongText`). Una FK se vuelve desplegable automáticamente. Con `options: [...]` es una lista fija (`FieldKind.Choice`) y se valida al guardar. |
+| `.Field(prop, label, kind?, grid, form, options?, section?, hideWhenActive?)` | Campo escalar. El tipo se infiere de EF; `kind` solo para forzar (`FieldKind.Email`, `FieldKind.Date`, `FieldKind.LongText`). Una FK se vuelve desplegable automáticamente. Con `options: [...]` es una lista fija (`FieldKind.Choice`) y se valida al guardar. `section` agrupa el campo con subtítulo en el modal de detalle; `hideWhenActive: true` lo oculta cuando el registro está activo (ej. fecha de cese). |
 | `.Many(navegación, label)` | Relación N:N (skip navigation de EF) → selección múltiple con chips. |
 | `.Password(label, (entidad, texto, services) => …)` | Campo virtual de contraseña: obligatorio al crear, opcional al editar. Nunca muestres el hash. |
 | `StatusField` | Propiedad `bool` de activo/inactivo. |
+| `GroupField` / `GroupOrder` / `GroupEmptyLabel` | Agrupa el listado en secciones desplegables por el valor de un campo de texto (ej. Cargos por `RoleFamilyName`). `GroupOrder` define el orden de las secciones (se comparan sin tildes ni mayúsculas); los registros sin valor van al final en `GroupEmptyLabel`. El modal muestra ese valor como badge en la cabecera y el panel de filtros lo incluye aunque `grid: false`. |
 | `SoftDeleteField` | Propiedad `DateTime?` de borrado lógico: eliminar solo la marca y el listado la excluye. |
 | `TitleLabel` | Encabezado de la columna principal (por defecto "Nombre"). |
 | `Feminine` | Género de `Singular` para "Nueva …" / "… creada". |

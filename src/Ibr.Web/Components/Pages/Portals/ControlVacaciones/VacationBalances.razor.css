@@ -1,0 +1,36 @@
+.ibr-detail-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    border: 1px solid var(--ibr-border);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--ibr-text-muted);
+    cursor: pointer;
+}
+
+.ibr-detail-btn:hover {
+    color: var(--ibr-accent, #1525F0);
+    border-color: var(--ibr-accent, #1525F0);
+    background: #F8FAFC;
+}
+
+.ibr-detail-btn svg {
+    width: 1.05rem;
+    height: 1.05rem;
+}
+
+.ibr-balance-name {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+}
+
+.ibr-active-check {
+    display: inline-flex;
+    color: #16A34A;
+}
+
+.ibr-active-check .rz-icon { font-size: 1.05rem; }

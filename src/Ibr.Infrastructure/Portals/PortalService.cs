@@ -14,9 +14,30 @@ public sealed class PortalService(IDbContextFactory<IbrDbContext> dbContextFacto
     {
         await using var db = await dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var roleIds = await db.Users
-            .Where(user => user.UserId == userId && user.DeletedAt == null && user.IsActive == true)
+        var roleIds = await db.AppUsers
+            .Where(user => user.UserId == userId && user.IsActive == true)
             .SelectMany(user => user.Roles.Select(role => role.RoleId))
+            .ToListAsync(cancellationToken);
+
+        if (roleIds.Count == 0)
+        {
+            try
+            {
+                roleIds = await db.Users
+                    .Where(user => user.UserId == userId && user.DeletedAt == null && user.IsActive == true)
+                    .SelectMany(user => user.Roles.Select(role => role.RoleId))
+                    .ToListAsync(cancellationToken);
+            }
+            catch (System.Data.Common.DbException)
+            {
+                roleIds = [];
+            }
+        }
+
+        var grantedPortalIds = await db.Portals
+            .AsNoTracking()
+            .Where(portal => portal.Users.Any(user => user.UserId == userId))
+            .Select(portal => portal.PortalId)
             .ToListAsync(cancellationToken);
 
         var portals = await db.Portals
@@ -31,7 +52,6 @@ public sealed class PortalService(IDbContextFactory<IbrDbContext> dbContextFacto
                 portal.Icon,
                 portal.Status,
                 portal.RoleId,
-                Granted = portal.Users.Any(user => user.UserId == userId),
                 Sections = portal.Sections
                     .Where(section => section.IsActive)
                     .OrderBy(section => section.DisplayOrder).ThenBy(section => section.Title)
@@ -46,7 +66,7 @@ public sealed class PortalService(IDbContextFactory<IbrDbContext> dbContextFacto
             // Un portal nunca es público por omisión: requiere asignación directa
             // en UserPortals o el rol configurado en Portals.RoleID.
             var restricted = true;
-            var hasAccess = portal.Granted
+            var hasAccess = grantedPortalIds.Contains(portal.PortalId)
                 || portal.RoleId is { } roleId && roleIds.Contains(roleId);
 
             return new PortalDto(

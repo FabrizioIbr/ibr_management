@@ -6,4 +6,7 @@ public sealed record AuthenticatedUserDto(
     string FullName)
 {
     public IReadOnlyList<string> Roles { get; init; } = [];
+
+    /// <summary>Empleado vinculado en la tabla Usuarios (base del filtrado jerárquico).</summary>
+    public int? EmployeeId { get; init; }
 }

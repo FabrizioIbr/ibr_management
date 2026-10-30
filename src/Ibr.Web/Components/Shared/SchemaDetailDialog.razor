@@ -1,0 +1,368 @@
+﻿@using System.Globalization
+@using Ibr.Application.Maestros
+@inject DialogService DialogService
+@inject IMaestrosService MaestrosService
+
+<div class="ibr-card ibr-card--flush ibr-detail">
+    <div class="ibr-detail__header">
+        <div class="ibr-detail__heading">
+            <h2 class="ibr-detail__title" title="@Title">@Title</h2>
+            @if (GroupBadge is { } badge)
+            {
+                <span class="ibr-badge ibr-badge--info" title="@badge">@badge</span>
+            }
+        </div>
+        @if (history.Count > 0)
+        {
+            <RadzenButton Text="Volver" Icon="arrow_back" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text"
+                          Size="ButtonSize.Small" Click="GoBack" title="Volver al registro anterior" />
+        }
+    </div>
+
+    <div class="ibr-detail__body">
+        @if (SectionFields.Any())
+        {
+            <RadzenTabs>
+                <Tabs>
+                    <RadzenTabsItem Text="Detalles">
+                        <div class="ibr-detail__sections">
+                            @foreach (var section in SectionGroups(ScalarFields))
+                            {
+                                @if (section.Label is { } header)
+                                {
+                                    <p class="ibr-detail__group">@header</p>
+                                }
+                                <dl class="ibr-detail-list">
+                                    @foreach (var field in section.Fields)
+                                    {
+                                        <dt>@field.Label</dt>
+                                        <dd class="@(IsEmpty(field) ? "is-empty" : null)">
+                                            @if (IsNavigable(field))
+                                            {
+                                                <button type="button" class="ibr-detail-link" @onclick="() => OpenReferenceAsync(field)"
+                                                        title="@($"Ver el detalle de este valor de {field.Label.ToLowerInvariant()}")">
+                                                    @ValueText(field)
+                                                </button>
+                                            }
+                                            else if (StatusLabel(field) is { } status)
+                                            {
+                                                <StatusBadge Status="@status" />
+                                            }
+                                            else
+                                            {
+                                                @ValueText(field)
+                                            }
+                                        </dd>
+                                    }
+                                </dl>
+                            }
+                        </div>
+                    </RadzenTabsItem>
+                    @foreach (var field in SectionFields)
+                    {
+                        <RadzenTabsItem Text="@field.Label">
+                            @if (field.Kind == FieldKind.MultiLookup)
+                            {
+                                <div class="ibr-detail__section">
+                                    @if (IsEmpty(field))
+                                    {
+                                        <span class="ibr-detail__empty">@EmptyText(field)</span>
+                                    }
+                                    else
+                                    {
+                                        <div class="ibr-cell-pills ibr-cell-pills--all" title="@ValueText(field)">
+                                            @foreach (var name in ValueText(field).Split(", ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                                            {
+                                                <span class="ibr-pill">@name</span>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="ibr-detail__section">
+                                    @RenderRichText(field)
+                                </div>
+                            }
+                        </RadzenTabsItem>
+                    }
+                </Tabs>
+            </RadzenTabs>
+        }
+        else
+        {
+            <div class="ibr-detail__sections">
+                @foreach (var section in SectionGroups(DetailFields))
+                {
+                    @if (section.Label is { } header)
+                    {
+                        <p class="ibr-detail__group">@header</p>
+                    }
+                    <dl class="ibr-detail-list">
+                        @foreach (var field in section.Fields)
+                        {
+                            <dt>@field.Label</dt>
+                            <dd class="@(IsEmpty(field) ? "is-empty" : null)">
+                                @if (IsNavigable(field))
+                                {
+                                    <button type="button" class="ibr-detail-link" @onclick="() => OpenReferenceAsync(field)"
+                                            title="@($"Ver el detalle de este valor de {field.Label.ToLowerInvariant()}")">
+                                        @ValueText(field)
+                                    </button>
+                                }
+                                else if (StatusLabel(field) is { } status)
+                                {
+                                    <StatusBadge Status="@status" />
+                                }
+                                else
+                                {
+                                    @ValueText(field)
+                                }
+                            </dd>
+                        }
+                    </dl>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="ibr-dialog-footer">
+        <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Click="@(() => DialogService.Close())" />
+        @if (CanEdit)
+        {
+            <RadzenButton Text="@($"Editar {CurrentSchema.Singular}")" Icon="edit" ButtonStyle="ButtonStyle.Primary" Click="EditCurrent" />
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public CatalogSchema Schema { get; set; } = null!;
+    [Parameter, EditorRequired] public CatalogRow Record { get; set; } = null!;
+    [Parameter] public EventCallback<CatalogRow> OnEdit { get; set; }
+
+    private CatalogSchema CurrentSchema = null!;
+    private CatalogRow Current = null!;
+    private CatalogRow? boundRecord;
+    private readonly Stack<(CatalogSchema Schema, CatalogRow Record)> history = new();
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(boundRecord, Record) || Current is null)
+        {
+            boundRecord = Record;
+            CurrentSchema = Schema;
+            Current = Record;
+            history.Clear();
+        }
+    }
+
+    private string Title => CatalogUiText.Display(Current[CatalogSchema.TitleKey] as string) ?? "—";
+
+    private bool CanEdit => OnEdit.HasDelegate && CurrentSchema.Slug == Schema.Slug;
+
+    private string? GroupBadge
+    {
+        get
+        {
+            if (CurrentSchema.GroupField is not { } name) return null;
+            var label = CatalogUiText.CellLabel(Current.TryGetValue(name, out var value) ? value?.ToString() : null);
+            return label.Length == 0 ? CurrentSchema.GroupEmptyLabel ?? "Sin valor" : label;
+        }
+    }
+
+    private IEnumerable<FieldSchema> DetailFields => CurrentSchema.Fields
+        .Where(column => !column.IsKey && column.Kind != FieldKind.Password)
+        .Where(column => column.Name != CurrentSchema.GroupField)
+        .Where(column => !(column.HideWhenActive && IsActiveRecord))
+        .Where(column => !IsTitleDuplicate(column));
+
+    private bool IsActiveRecord
+    {
+        get
+        {
+            if (CurrentSchema.StatusField is { } status && Current.TryGetValue(status, out var flag))
+            {
+                return flag is true;
+            }
+
+            return CurrentSchema.Fields.Any(column =>
+                column.Kind is FieldKind.Text or FieldKind.Choice &&
+                Current.TryGetValue(column.Name, out var value) &&
+                CatalogUiText.TryStatusLabel(value?.ToString(), out var label) && label == "Activo");
+        }
+    }
+
+    private IReadOnlyList<(string? Label, List<FieldSchema> Fields)> SectionGroups(IEnumerable<FieldSchema> fields)
+    {
+        var list = fields.ToList();
+        if (list.All(column => column.Section is null)) return [(null, list)];
+
+        var groups = new List<(string? Label, List<FieldSchema> Fields)>();
+        foreach (var column in list)
+        {
+            var label = column.Section ?? "General";
+            var existing = groups.FindIndex(g => string.Equals(g.Label, label, StringComparison.OrdinalIgnoreCase));
+            if (existing >= 0)
+            {
+                groups[existing].Fields.Add(column);
+            }
+            else
+            {
+                groups.Add((label, [column]));
+            }
+        }
+
+        return groups;
+    }
+
+    private IEnumerable<FieldSchema> SectionFields => DetailFields
+        .Where(column => column.Kind is FieldKind.LongText or FieldKind.MultiLookup)
+        .ToList();
+
+    private IEnumerable<FieldSchema> ScalarFields => DetailFields
+        .Where(column => column.Kind is not (FieldKind.LongText or FieldKind.MultiLookup))
+        .ToList();
+
+    private bool IsTitleDuplicate(FieldSchema field) =>
+        field.Kind is FieldKind.Text or FieldKind.Choice &&
+        string.Equals(ValueText(field), Title, StringComparison.OrdinalIgnoreCase);
+
+    private object? Raw(FieldSchema field) =>
+        Current.TryGetValue(field.Kind is FieldKind.Lookup or FieldKind.MultiLookup ? field.DisplayKey : field.Name, out var value) ? value : null;
+
+    private string ValueText(FieldSchema field)
+    {
+        var text = Raw(field) switch
+        {
+            null => string.Empty,
+            string empty when empty.Length == 0 => string.Empty,
+            DateTime date => date.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture),
+            DateOnly only => only.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
+            bool flag => field.Name == CurrentSchema.StatusField ? (flag ? "Activo" : "Inactivo") : (flag ? "Sí" : "No"),
+            var other => other.ToString() ?? string.Empty
+        };
+
+        if (field.Kind == FieldKind.Email) return text;
+        var display = CatalogUiText.Display(text);
+        return CatalogUiText.TryStatusLabel(text, out var status) ? status : display ?? text;
+    }
+
+    private bool IsEmpty(FieldSchema field) =>
+        field.Kind != FieldKind.Boolean && ValueText(field).Length == 0;
+
+    private string EmptyText(FieldSchema field) => $"Sin {field.Label.ToLowerInvariant()}";
+
+    private string? StatusLabel(FieldSchema field)
+    {
+        Current.TryGetValue(field.Name, out var value);
+        if (field.Kind == FieldKind.Boolean && field.Name == CurrentSchema.StatusField)
+        {
+            return value is true ? "Activo" : "Inactivo";
+        }
+
+        if (field.Kind is FieldKind.Text or FieldKind.Choice or FieldKind.Lookup &&
+            CatalogUiText.TryStatusLabel(value?.ToString(), out var label))
+        {
+            return label;
+        }
+
+        return null;
+    }
+
+    private bool IsNavigable(FieldSchema field) =>
+        field.Kind == FieldKind.Lookup && field.ReferenceSlug is not null && Current[field.Name] is not null;
+
+    private async Task OpenReferenceAsync(FieldSchema field)
+    {
+        if (field.ReferenceSlug is not { } slug) return;
+        var targetSchema = MaestrosService.FindCatalog(slug);
+        if (targetSchema is null) return;
+
+        var key = Current[field.Name]?.ToString();
+        var rows = await MaestrosService.GetRecordsAsync(slug);
+        var target = rows.FirstOrDefault(row => string.Equals(row[targetSchema.KeyField]?.ToString(), key, StringComparison.Ordinal));
+        if (target is null) return;
+
+        history.Push((CurrentSchema, Current));
+        CurrentSchema = targetSchema;
+        Current = target;
+    }
+
+    private void GoBack()
+    {
+        var previous = history.Pop();
+        CurrentSchema = previous.Schema;
+        Current = previous.Record;
+    }
+
+    private async Task EditCurrent()
+    {
+        var row = Current;
+        var edit = OnEdit;
+        DialogService.Close();
+        await edit.InvokeAsync(row);
+    }
+
+    // ---------- Descripción con viñetas reales ----------
+
+    private RenderFragment RenderRichText(FieldSchema field) => builder =>
+    {
+        var text = ValueText(field);
+        if (text.Length == 0)
+        {
+            builder.OpenElement(0, "span");
+            builder.AddAttribute(1, "class", "ibr-detail__empty");
+            builder.AddContent(2, EmptyText(field));
+            builder.CloseElement();
+            return;
+        }
+
+        var segments = BulletSegments(text);
+        var index = 3;
+        for (var position = 0; position < segments.Count;)
+        {
+            if (segments[position].IsItem)
+            {
+                builder.OpenElement(index++, "ul");
+                builder.AddAttribute(index++, "class", "ibr-detail__list");
+                while (position < segments.Count && segments[position].IsItem)
+                {
+                    builder.OpenElement(index++, "li");
+                    builder.AddContent(index++, segments[position].Text);
+                    builder.CloseElement();
+                    position++;
+                }
+
+                builder.CloseElement();
+                continue;
+            }
+
+            builder.OpenElement(index++, "p");
+            builder.AddAttribute(index++, "class", "ibr-detail__paragraph");
+            builder.AddContent(index++, segments[position].Text);
+            builder.CloseElement();
+            position++;
+        }
+    };
+
+    private static List<(bool IsItem, string Text)> BulletSegments(string text)
+    {
+        var lines = text
+            .Replace("•", "\n•", StringComparison.Ordinal)
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        var segments = new List<(bool, string)>(lines.Length);
+        foreach (var line in lines)
+        {
+            if (line.Length == 0) continue;
+            var item = line.StartsWith("•") || line.StartsWith("- ") || line.StartsWith("* ");
+            var content = item
+                ? line[0] == '•' ? line[1..].Trim(' ', '-', '–', '—') : line[2..].Trim()
+                : line;
+            if (content.Length > 0) segments.Add((item, content));
+        }
+
+        return segments;
+    }
+}

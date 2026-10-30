@@ -1,0 +1,139 @@
+﻿@page "/admin/buk"
+@layout PortalLayout
+@attribute [Authorize]
+@using Ibr.Application.Buk
+@using Ibr.Application.Portals
+@inject IBukSyncService BukSyncService
+@inject NotificationService NotificationService
+@inject DialogService DialogService
+@inject ILogger<BukSync> Logger
+
+<PageTitle>Importar desde Buk</PageTitle>
+
+<nav class="ibr-breadcrumb" aria-label="Ruta">
+    <a href="/dashboard">Portales</a><RadzenIcon Icon="chevron_right" /><span>Integraciones</span><RadzenIcon Icon="chevron_right" /><span>Buk</span>
+</nav>
+
+<PageHeader Title="Importar desde Buk" Subtitle="Copia áreas y cargos desde la API de Buk a esta base de datos.">
+    <Actions>
+        <RadzenButton Text="Importar Áreas y Cargos" Icon="sync" ButtonStyle="ButtonStyle.Primary"
+                      Click="@SyncAsync" Disabled="@(isSyncing || !CanSync)" />
+    </Actions>
+</PageHeader>
+
+@if (!BukSyncService.HasBaseUrl)
+{
+    <div class="ibr-card ibr-empty">
+        <RadzenIcon Icon="link_off" />
+        <strong>Falta configurar la URL de Buk</strong>
+        <span>Define <code>Buk:BaseUrl</code> en <code>appsettings.json</code> o en los secretos de la aplicación.</span>
+    </div>
+}
+else
+{
+    <div class="ibr-card">
+        <h2 class="ibr-section-title">Credenciales de Buk</h2>
+        <p class="ibr-text-muted">URL base: <code>@BukSyncService.BaseUrl</code></p>
+
+        <div class="ibr-field">
+            <label class="ibr-field__label">Token de API</label>
+            <RadzenPassword @bind-Value="token" Disabled="@isSyncing" Placeholder="Pega aquí tu token de Buk" />
+        </div>
+
+        @if (BukSyncService.HasConfiguredToken)
+        {
+            <p class="ibr-text-muted">
+                <RadzenIcon Icon="check_circle" /> Ya hay un token configurado en User Secrets / Key Vault.
+                Déjalo vacío para usar ese token.
+            </p>
+        }
+        else
+        {
+            <p class="ibr-text-muted">
+                El token no se guarda en la base de datos ni en el repositorio: se usa solo para esta importación
+                y se descarta al terminar. Para no tener que escribirlo cada vez, guárdalo con User Secrets o Azure Key Vault.
+            </p>
+        }
+    </div>
+}
+
+@if (isSyncing)
+{
+    <div class="ibr-loading">
+        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Medium" />
+        <span>Consultando Buk y actualizando tablas…</span>
+    </div>
+}
+
+@if (result is not null)
+{
+    <div class="ibr-stats">
+        <StatCard Label="Áreas" Value="@result.Areas.ToString()" Icon="account_tree" />
+        <StatCard Label="Cargos" Value="@result.Cargos.ToString()" Icon="work" />
+        <StatCard Label="Cargo ↔ Área" Value="@result.CargoAreas.ToString()" Icon="link" Tone="success" />
+        <StatCard Label="Empleados IBR Perú" Value="@result.EmployeesSaved.ToString()" Icon="badge" />
+        <StatCard Label="Usuarios nuevos" Value="@result.NewUsers.ToString()" Icon="person_add" Tone="success" />
+    </div>
+    <p class="ibr-card__toolbar-meta">Última sincronización: @result.SyncedAt.ToLocalTime().ToString("dd-MM-yyyy HH:mm")</p>
+}
+
+@if (error is not null)
+{
+    <div class="ibr-card ibr-empty">
+        <RadzenIcon Icon="error" />
+        <strong>No se pudo completar la importación</strong>
+        <span>@error</span>
+    </div>
+}
+
+<div class="ibr-card">
+    <h2 class="ibr-section-title">Qué hace esta importación</h2>
+    <p>Consulta <strong>organization/areas</strong>, <strong>roles</strong> y <strong>employees/active</strong> de Buk. Solo procesa empleados cuyo <code>current_job.company_id</code> sea <strong>2</strong> (IBR Perú).</p>
+    <p>Hace upsert en <strong>Areas</strong>, <strong>Cargos</strong>, <strong>Cargos_Areas</strong> y <strong>Empleados</strong>. Luego crea en <strong>Usuarios</strong> las cuentas que no existan por correo.</p>
+</div>
+
+@code {
+    private bool isSyncing;
+    private string token = string.Empty;
+    private BukSyncResult? result;
+    private string? error;
+
+    private bool CanSync =>
+        BukSyncService.HasBaseUrl &&
+        (BukSyncService.HasConfiguredToken || !string.IsNullOrWhiteSpace(token));
+
+    private async Task SyncAsync()
+    {
+        var confirmed = await DialogService.Confirm(
+            "Se consultará la API de Buk y se actualizarán las áreas, cargos y sus relaciones. ¿Continuar?",
+            "Importar desde Buk",
+            new ConfirmOptions { OkButtonText = "Importar", CancelButtonText = "Cancelar", CssClass = "ibr-dialog" });
+        if (confirmed != true) return;
+
+        isSyncing = true;
+        error = null;
+
+        try
+        {
+            result = await BukSyncService.SyncAsync(string.IsNullOrWhiteSpace(token) ? null : token);
+            token = string.Empty;
+            NotificationService.Notify(NotificationSeverity.Success, "Importación completada",
+                $"{result.Areas} áreas, {result.Cargos} cargos y {result.EmployeesSaved} empleados de IBR Perú.");
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+            NotificationService.Notify(NotificationSeverity.Error, "No se pudo importar", exception.Message);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Error inesperado importando desde Buk.");
+            error = "Ocurrió un error inesperado. Revisa los logs del servidor.";
+            NotificationService.Notify(NotificationSeverity.Error, "No se pudo importar", error);
+        }
+        finally
+        {
+            isSyncing = false;
+        }
+    }
+}

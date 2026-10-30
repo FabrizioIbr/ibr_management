@@ -1,0 +1,166 @@
+@page "/admin/solicitudes-vacaciones"
+@layout PortalLayout
+@attribute [Authorize]
+@using System.Globalization
+@using Ibr.Application.Vacations
+@inject IVacationAdminService VacationAdminService
+@inject DialogService DialogService
+
+<PageTitle>Solicitudes de vacaciones</PageTitle>
+
+<nav class="ibr-breadcrumb" aria-label="Ruta">
+    <a href="/dashboard">Portales</a><RadzenIcon Icon="chevron_right" /><span>Control de vacaciones</span><RadzenIcon Icon="chevron_right" /><span>Solicitudes</span>
+</nav>
+
+<PageHeader Title="Solicitudes de vacaciones" Subtitle="Solicitudes sincronizadas desde Buk para los empleados de IBR Perú.">
+    <Actions>
+        <RadzenButton Text="Actualizar" Icon="refresh" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Click="@LoadAsync" Disabled="@loading" />
+    </Actions>
+</PageHeader>
+
+<div class="ibr-stats">
+    <StatCard Label="Total aprobadas" Value="@Value(kpis?.Approved)" Icon="check_circle" Tone="success" />
+    <StatCard Label="Pendientes" Value="@Value(kpis?.Pending)" Icon="hourglass_top" />
+    <StatCard Label="Rechazadas" Value="@Value(kpis?.Rejected)" Icon="block" Tone="muted" />
+</div>
+
+<div class="ibr-card ibr-card--flush">
+    <div class="ibr-card__toolbar">
+        <div class="ibr-filterbar" style="width:100%">
+            <div class="ibr-field">
+                <label class="ibr-field__label" for="flt-empleado">Empleado</label>
+                <RadzenTextBox id="flt-empleado" @bind-Value="employeeTerm" Placeholder="Nombre del empleado…" />
+            </div>
+            <div class="ibr-field">
+                <label class="ibr-field__label" for="flt-desde">Inicio desde</label>
+                <RadzenDatePicker id="flt-desde" @bind-Value="startFrom" DateFormat="dd/MM/yyyy" Placeholder="dd/MM/aaaa" />
+            </div>
+            <div class="ibr-field">
+                <label class="ibr-field__label" for="flt-estado">Estado</label>
+                <RadzenDropDown id="flt-estado" @bind-Value="statusFilter" Data="@StatusOptions" TextProperty="Label" ValueProperty="Value" style="width:100%" />
+            </div>
+            <div class="ibr-filterbar__actions">
+                <RadzenButton Text="Buscar" Icon="search" ButtonStyle="ButtonStyle.Primary" Click="@LoadAsync" Disabled="@loading" />
+                <RadzenButton Text="Limpiar" Icon="backspace" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Click="@ResetAsync" Disabled="@loading" />
+            </div>
+        </div>
+    </div>
+
+    @if (loading)
+    {
+        <div class="ibr-loading"><RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Medium" /></div>
+    }
+    else
+    {
+        <RadzenDataGrid TItem="VacationRequestDto" Data="@rows" AllowPaging="true" AllowSorting="true" PageSize="10"
+                        PagerHorizontalAlign="HorizontalAlign.Right" ShowPagingSummary="true" PagingSummaryFormat="Página {0} de {1}"
+                        RowDoubleClick="@(args => args.Data is null ? Task.CompletedTask : OpenDetailAsync(args.Data))">
+            <EmptyTemplate>
+                <div class="ibr-empty">
+                    <RadzenIcon Icon="beach_access" />
+                    <strong>Sin resultados</strong>
+                    <span>Ninguna solicitud coincide con los filtros aplicados.</span>
+                </div>
+            </EmptyTemplate>
+            <Columns>
+                <RadzenDataGridColumn TItem="VacationRequestDto" Title="Empleado" Property="EmployeeName" MinWidth="240px">
+                    <Template Context="row">
+                        <div class="ibr-cell-primary">
+                            <Avatar Name="@row.EmployeeName" />
+                            <span class="ibr-cell-primary__name">@row.EmployeeName</span>
+                        </div>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="VacationRequestDto" Title="Inicio" Property="StartDate" Width="120px">
+                    <Template Context="row">@Format(row.StartDate)</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="VacationRequestDto" Title="Fin" Property="EndDate" Width="120px">
+                    <Template Context="row">@Format(row.EndDate)</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="VacationRequestDto" Title="Días" Property="WorkingDays" Width="90px" TextAlign="TextAlign.Center">
+                    <Template Context="row">@row.WorkingDays.ToString("0.##", CultureInfo.InvariantCulture)</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="VacationRequestDto" Title="Estado" Property="Status" Width="160px">
+                    <Template Context="row">
+                        <span class="ibr-badge ibr-badge--@Badge(row.Status).Css">@Badge(row.Status).Label</span>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="VacationRequestDto" Title="" Width="88px" Sortable="false" Filterable="false" TextAlign="TextAlign.Right">
+                    <Template Context="row">
+                        <RadzenButton Icon="visibility" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small"
+                                      title="Ver detalle" Click="@(() => OpenDetailAsync(row))" />
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    }
+</div>
+
+@code {
+    private sealed record StatusOption(string Value, string Label);
+
+    private static readonly IReadOnlyList<StatusOption> StatusOptions =
+    [
+        new("all", "Todos"),
+        new("approved", "Aprobada"),
+        new("pending", "Pendiente"),
+        new("submitted", "Enviada"),
+        new("pre_approved", "Preaprobada"),
+        new("signature_required", "Requiere firma"),
+        new("rejected", "Rechazada")
+    ];
+
+    private VacationKpisDto? kpis;
+    private IReadOnlyList<VacationRequestDto> rows = [];
+    private bool loading = true;
+    private string employeeTerm = string.Empty;
+    private DateOnly? startFrom;
+    private string statusFilter = "all";
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        try
+        {
+            var filter = new VacationRequestFilterDto(employeeTerm, startFrom, statusFilter);
+            var loadedRows = await VacationAdminService.SearchRequestsAsync(filter);
+            var loadedKpis = await VacationAdminService.GetKpisAsync();
+            rows = loadedRows;
+            kpis = loadedKpis;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task ResetAsync()
+    {
+        employeeTerm = string.Empty;
+        startFrom = null;
+        statusFilter = "all";
+        await LoadAsync();
+    }
+
+    private Task OpenDetailAsync(VacationRequestDto request) =>
+        DialogService.OpenAsync<VacationRequestDetail>(
+            "Detalle de solicitud",
+            new Dictionary<string, object?> { [nameof(VacationRequestDetail.Request)] = request },
+            new DialogOptions { Width = "min(640px, 94vw)", Resizable = true, Draggable = true, ShowClose = true, CssClass = "ibr-dialog" });
+
+    private static string Value(int? count) => count?.ToString() ?? "—";
+
+    private static string Format(DateOnly date) => date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+
+    private static (string Css, string Label) Badge(string status) => status.Trim().ToLowerInvariant() switch
+    {
+        "approved" => ("success", "Aprobada"),
+        "submitted" => ("warning", "Pendiente"),
+        "pre_approved" => ("warning", "Preaprobada"),
+        "signature_required" => ("info", "Requiere firma"),
+        "rejected" => ("danger", "Rechazada"),
+        _ => ("neutral", status)
+    };
+}

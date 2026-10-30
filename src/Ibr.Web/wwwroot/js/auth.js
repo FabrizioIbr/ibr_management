@@ -11,7 +11,11 @@ window.ibrAuth = {
             return { ok: true };
         }
 
-        let message = 'Credenciales inválidas. Verifica tu correo y contraseña.';
+        let message = response.status === 401
+            ? 'El correo corporativo o la contraseña no son válidos.'
+            : response.status === 403
+                ? 'Tu cuenta no tiene permiso para iniciar sesión.'
+                : 'No se pudo iniciar sesión. Inténtalo nuevamente.';
 
         try {
             const contentType = response.headers.get('content-type') || '';
@@ -21,7 +25,7 @@ window.ibrAuth = {
                     message = data.message;
                 } else if (typeof data?.error === 'string' && data.error.trim() !== '') {
                     message = data.error;
-                } else if (typeof data?.title === 'string' && data.title.trim() !== '') {
+                } else if (response.status !== 401 && typeof data?.title === 'string' && data.title.trim() !== '') {
                     message = data.title;
                 }
             } else {

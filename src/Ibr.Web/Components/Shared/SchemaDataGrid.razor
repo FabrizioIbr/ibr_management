@@ -1,5 +1,4 @@
-@* Grid estándar del portal: tarjeta + buscador + RadzenDataGrid con columnas generadas desde el schema. *@
-@using System.Globalization
+@* Grid estándar del portal: tarjeta + buscador + filtros flotantes (multi-selección y rangos) + agrupación acordeón + paginación. *@
 @using Ibr.Application.Maestros
 
 <section class="ibr-card ibr-card--flush">
@@ -8,57 +7,93 @@
             <RadzenIcon Icon="search" />
             <RadzenTextBox @bind-Value="search" Immediate="true" Placeholder="@($"Buscar en {Schema.Label.ToLowerInvariant()}…")" aria-label="Buscar registros" />
         </div>
-        <span class="ibr-card__toolbar-meta">@Filtered.Count() de @Records.Count registros</span>
+        <div class="ibr-toolbar-right">
+            @if (FilterFields.Count > 0)
+            {
+                <RadzenButton Icon="filter_alt" Text="@FiltersText" ButtonStyle="ButtonStyle.Base"
+                              Variant="@(ActiveFilterCount > 0 ? Variant.Filled : Variant.Outlined)" Size="ButtonSize.Small"
+                              title="Filtrar por columna" Click="ToggleFilters" />
+            }
+            <span class="ibr-card__toolbar-meta">@FilteredCount de @Records.Count registros</span>
+
+            @if (showFilters && FilterFields.Count > 0)
+            {
+                <div class="ibr-filters" role="group" aria-label="Filtros">
+                    @foreach (var field in FilterFields)
+                    {
+                        @if (field.Kind is FieldKind.Date or FieldKind.DateTime)
+                        {
+                            <div class="ibr-filter">
+                                <span class="ibr-filter__label">@field.Label</span>
+                                <div class="ibr-filter__dates">
+                                    <RadzenDatePicker TValue="DateTime?" DateFormat="dd/MM/yyyy" Placeholder="Desde"
+                                                      Value="@DateValue(field.Name, isFrom: true)"
+                                                      Change="@((DateTime? value) => SetDate(field.Name, isFrom: true, value))" />
+                                    <RadzenDatePicker TValue="DateTime?" DateFormat="dd/MM/yyyy" Placeholder="Hasta"
+                                                      Value="@DateValue(field.Name, isFrom: false)"
+                                                      Change="@((DateTime? value) => SetDate(field.Name, isFrom: false, value))" />
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="ibr-filter">
+                                <span class="ibr-filter__label">@field.Label</span>
+                                <RadzenDropDown TValue="IEnumerable<string>" Data="@OptionsFor(field)"
+                                                Multiple="true" Chips="true" AllowClear="true"
+                                                AllowFiltering="true" FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive"
+                                                Placeholder="Todos" SelectAllText="Seleccionar todos" SelectedItemsText="seleccionados"
+                                                PopupStyle="max-height:320px;overflow-x:hidden"
+                                                Value="@SelectedValues(field.Name)"
+                                                ValueChanged="@((IEnumerable<string> values) => SetSelected(field.Name, values))" />
+                            </div>
+                        }
+                    }
+                    <div class="ibr-filter ibr-filter--actions">
+                        <RadzenButton Text="Limpiar filtros" Icon="filter_alt_off" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text"
+                                      Size="ButtonSize.Small" Click="ClearFilters" Disabled="@(ActiveFilterCount == 0)" />
+                    </div>
+                </div>
+            }
+        </div>
     </div>
 
     @if (Loading)
     {
         <div class="ibr-loading"><RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Medium" /></div>
     }
-    else
+    else if (Schema.GroupField is not null)
     {
-        <RadzenDataGrid TItem="CatalogRow" Data="@Filtered" AllowPaging="true" AllowSorting="true" PageSize="@PageSize"
-                        PagerHorizontalAlign="HorizontalAlign.Right" ShowPagingSummary="true" PagingSummaryFormat="Página {0} de {1}"
-                        RowDoubleClick="@(args => OnEdit.InvokeAsync(args.Data))">
-            <EmptyTemplate>
+        <div class="ibr-groups">
+            @foreach (var group in BuildGroups(Filtered))
+            {
+                <div class="ibr-group" @key="group.Key">
+                    <button type="button" class="ibr-group__header" @onclick="() => ToggleGroup(group)">
+                        <RadzenIcon Icon="@(IsExpanded(group) ? "expand_more" : "chevron_right")" />
+                        <span class="ibr-group__label">@group.Label</span>
+                        <span class="ibr-group__count">(@GroupCountLabel(group))</span>
+                    </button>
+                    @if (IsExpanded(group))
+                    {
+                        <CatalogGrid Schema="@Schema" Rows="@group.Rows" HasQuery="@HasQuery" ShowDetailsAction="@ShowDetailsAction"
+                                     OnEdit="@OnEdit" OnDetails="@OnDetails" OnDelete="@OnDelete" />
+                    }
+                </div>
+            }
+            @if (FilteredCount == 0)
+            {
                 <div class="ibr-empty">
                     <RadzenIcon Icon="inventory_2" />
                     <strong>Sin resultados</strong>
-                    <span>@(string.IsNullOrWhiteSpace(search) ? "Aún no hay registros. Crea el primero con el botón superior." : "Ningún registro coincide con la búsqueda.")</span>
+                    <span>@(HasQuery ? "Ningún registro coincide con la búsqueda o los filtros." : "Aún no hay registros en este listado.")</span>
                 </div>
-            </EmptyTemplate>
-            <Columns>
-                <RadzenDataGridColumn TItem="CatalogRow" Title="@Schema.TitleLabel" MinWidth="220px"
-                                      Property="@PropertyAccess.GetDynamicPropertyExpression(CatalogSchema.TitleKey, typeof(string))">
-                    <Template Context="row">
-                        <div class="ibr-cell-primary">
-                            <Avatar Name="@(row[CatalogSchema.TitleKey] as string)" />
-                            <span class="ibr-cell-primary__name">@row[CatalogSchema.TitleKey]</span>
-                        </div>
-                    </Template>
-                </RadzenDataGridColumn>
-
-                @foreach (var field in Schema.Fields.Where(field => field.ShowInGrid && !field.IsKey))
-                {
-                    <RadzenDataGridColumn TItem="CatalogRow" Title="@field.Label"
-                                          Property="@PropertyAccess.GetDynamicPropertyExpression(field.DisplayKey, field.DisplayType)"
-                                          Width="@(field.Kind == FieldKind.Boolean ? "130px" : null)">
-                        <Template Context="row">@RenderCell(field, row)</Template>
-                    </RadzenDataGridColumn>
-                }
-
-                <RadzenDataGridColumn TItem="CatalogRow" Title="" Width="104px" Sortable="false" TextAlign="TextAlign.Right">
-                    <Template Context="row">
-                        <div class="ibr-row-actions">
-                            <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small"
-                                          title="Editar" Click="@(() => OnEdit.InvokeAsync(row))" />
-                            <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Text" Size="ButtonSize.Small"
-                                          title="Eliminar" Click="@(() => OnDelete.InvokeAsync(row))" />
-                        </div>
-                    </Template>
-                </RadzenDataGridColumn>
-            </Columns>
-        </RadzenDataGrid>
+            }
+        </div>
+    }
+    else
+    {
+        <CatalogGrid Schema="@Schema" Rows="@Filtered" HasQuery="@HasQuery" ShowDetailsAction="@ShowDetailsAction"
+                     OnEdit="@OnEdit" OnDetails="@OnDetails" OnDelete="@OnDelete" />
     }
 </section>
 
@@ -66,12 +101,20 @@
     [Parameter, EditorRequired] public CatalogSchema Schema { get; set; } = null!;
     [Parameter, EditorRequired] public IReadOnlyList<CatalogRow> Records { get; set; } = [];
     [Parameter] public bool Loading { get; set; }
-    [Parameter] public int PageSize { get; set; } = 10;
+    [Parameter] public IReadOnlyDictionary<string, IReadOnlyList<LookupOption>>? Lookups { get; set; }
+    [Parameter] public IReadOnlyList<string>? FilterExclude { get; set; }
+    [Parameter] public bool ShowDetailsAction { get; set; } = true;
     [Parameter] public EventCallback<CatalogRow> OnEdit { get; set; }
+    [Parameter] public EventCallback<CatalogRow> OnDetails { get; set; }
     [Parameter] public EventCallback<CatalogRow> OnDelete { get; set; }
 
     private string search = string.Empty;
     private string? schemaSlug;
+    private bool showFilters;
+    private readonly Dictionary<string, IEnumerable<string>> selected = [];
+    private readonly Dictionary<string, (DateTime? From, DateTime? To)> ranges = [];
+    private readonly HashSet<string> collapsed = [];
+    private IReadOnlyList<FieldSchema>? filterFields;
 
     protected override void OnParametersSet()
     {
@@ -79,56 +122,246 @@
         {
             schemaSlug = Schema.Slug;
             search = string.Empty;
+            showFilters = false;
+            ClearFilters();
+            collapsed.Clear();
+            filterFields = null;
         }
     }
 
-    private IEnumerable<CatalogRow> Filtered => string.IsNullOrWhiteSpace(search)
-        ? Records
-        : Records.Where(row => SearchableKeys.Any(key =>
-            row.TryGetValue(key, out var value) && value?.ToString()?.Contains(search, StringComparison.OrdinalIgnoreCase) == true));
+    private string PluralLabel => Schema.Label.ToLowerInvariant();
+
+    // ---------- Filtros ----------
+
+    private IReadOnlyList<FieldSchema> FilterFields => filterFields ??= Schema.Fields
+        .Where(IsFilterableField)
+        .ToList();
+
+    private bool IsFilterableField(FieldSchema column)
+    {
+        if (column.IsKey || column.Name == Schema.KeyField) return false;
+        if (FilterExclude is not null && FilterExclude.Any(name => string.Equals(name, column.Name, StringComparison.OrdinalIgnoreCase))) return false;
+
+        return column.Kind switch
+        {
+            FieldKind.Text or FieldKind.Choice => (column.ShowInGrid || column.Name == Schema.GroupField) && OptionsFor(column).Count is > 0 and <= 40,
+            FieldKind.Lookup or FieldKind.MultiLookup => OptionTexts(column) is { Count: > 0 and <= 2000 },
+            FieldKind.Date or FieldKind.DateTime => column.ShowInGrid,
+            _ => false
+        };
+    }
+
+    private List<string> OptionsFor(FieldSchema column)
+    {
+        var options = column.Kind switch
+        {
+            FieldKind.Lookup or FieldKind.MultiLookup => OptionTexts(column) ?? [],
+            _ => DistinctValues(column)
+        };
+
+        if (HasEmptyValue(column))
+        {
+            var empty = NoValueLabel(column);
+            if (!options.Contains(empty, StringComparer.OrdinalIgnoreCase)) options.Add(empty);
+        }
+
+        return options;
+    }
+
+    private List<string>? OptionTexts(FieldSchema column) =>
+        Lookups is not null && Lookups.TryGetValue(column.Name, out var lookups)
+            ? lookups.Select(option => CatalogUiText.CellLabel(option.Text))
+                      .Where(text => text.Length > 0)
+                      .Distinct(StringComparer.OrdinalIgnoreCase)
+                      .Order(StringComparer.CurrentCultureIgnoreCase)
+                      .ToList()
+            : null;
+
+    private List<string> DistinctValues(FieldSchema column) => Records
+        .Select(row => CellFilterText(column, row))
+        .Where(text => text.Length > 0)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Order(StringComparer.CurrentCultureIgnoreCase)
+        .ToList();
+
+    private bool HasEmptyValue(FieldSchema column) => Records.Any(row => CellFilterText(column, row).Length == 0);
+
+    private string NoValueLabel(FieldSchema column) =>
+        column.Name == Schema.GroupField ? Schema.GroupEmptyLabel ?? "Sin valor" : "Sin valor";
+
+    private string CellFilterText(FieldSchema column, CatalogRow row)
+    {
+        var key = column.Kind is FieldKind.Lookup or FieldKind.MultiLookup ? column.DisplayKey : column.Name;
+        return row.TryGetValue(key, out var value) ? CatalogUiText.CellLabel(value?.ToString()) : string.Empty;
+    }
+
+    private IEnumerable<string> SelectedValues(string name) =>
+        selected.TryGetValue(name, out var values) ? values : [];
+
+    private void SetSelected(string name, IEnumerable<string>? values)
+    {
+        var list = values?.Where(text => !string.IsNullOrWhiteSpace(text)).ToList() ?? [];
+        if (list.Count == 0) selected.Remove(name);
+        else selected[name] = list;
+    }
+
+    private DateTime? DateValue(string name, bool isFrom) =>
+        ranges.TryGetValue(name, out var range) ? isFrom ? range.From : range.To : null;
+
+    private void SetDate(string name, bool isFrom, DateTime? value)
+    {
+        (DateTime? From, DateTime? To) range = ranges.TryGetValue(name, out var existing) ? existing : (null, null);
+        range = isFrom ? (value, range.To) : (range.From, value);
+
+        if (range.From is null && range.To is null) ranges.Remove(name);
+        else ranges[name] = range;
+    }
+
+    private void ClearFilters()
+    {
+        selected.Clear();
+        ranges.Clear();
+    }
+
+    private int ActiveFilterCount =>
+        selected.Count(entry => entry.Value.Any()) + ranges.Count(entry => entry.Value.From is not null || entry.Value.To is not null);
+
+    private bool HasQuery => !string.IsNullOrWhiteSpace(search) || ActiveFilterCount > 0;
+
+    private string FiltersText => ActiveFilterCount > 0 ? $"Filtros ({ActiveFilterCount})" : "Filtros";
+
+    private void ToggleFilters()
+    {
+        showFilters = !showFilters;
+        if (!showFilters) ClearFilters();
+    }
+
+    // ---------- Filtrado ----------
+
+    private IEnumerable<CatalogRow> Filtered => Records.Where(row => MatchesSearch(row) && MatchesFilters(row));
+
+    private int FilteredCount => HasQuery ? Filtered.Count() : Records.Count;
+
+    private bool MatchesFilters(CatalogRow row)
+    {
+        foreach (var column in FilterFields)
+        {
+            if (column.Kind is FieldKind.Date or FieldKind.DateTime)
+            {
+                if (!MatchesRange(column, row)) return false;
+            }
+            else if (!MatchesOption(column, row))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private bool MatchesOption(FieldSchema column, CatalogRow row)
+    {
+        if (!selected.TryGetValue(column.Name, out var chosen) || !chosen.Any()) return true;
+
+        var text = CellFilterText(column, row);
+        if (text.Length == 0)
+        {
+            return chosen.Any(value => string.Equals(value, NoValueLabel(column), StringComparison.OrdinalIgnoreCase));
+        }
+
+        return column.Kind == FieldKind.MultiLookup
+            ? chosen.Any(value => text.Contains(value, StringComparison.OrdinalIgnoreCase))
+            : chosen.Any(value => string.Equals(text, value, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool MatchesRange(FieldSchema column, CatalogRow row)
+    {
+        if (!ranges.TryGetValue(column.Name, out var range) || (range.From is null && range.To is null)) return true;
+        if (!TryGetDay(row, column.Name, out var day)) return false;
+
+        if (range.From is { } from && day < from.Date) return false;
+        if (range.To is { } to && day > to.Date) return false;
+        return true;
+    }
+
+    private static bool TryGetDay(CatalogRow row, string name, out DateTime day)
+    {
+        if (row.TryGetValue(name, out var value))
+        {
+            switch (value)
+            {
+                case DateTime dateTime:
+                    day = dateTime.Date;
+                    return true;
+                case DateOnly dateOnly:
+                    day = dateOnly.ToDateTime(TimeOnly.MinValue);
+                    return true;
+            }
+        }
+
+        day = default;
+        return false;
+    }
+
+    private bool MatchesSearch(CatalogRow row)
+    {
+        var terms = search.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var searchableText = string.Join(' ', SearchableKeys
+            .Where(row.ContainsKey)
+            .Select(key => row[key]?.ToString() ?? string.Empty));
+
+        return terms.All(term => searchableText.Contains(term, StringComparison.OrdinalIgnoreCase));
+    }
 
     private IEnumerable<string> SearchableKeys => Schema.Fields
-        .Where(column => column.ShowInGrid && column.Kind is not (FieldKind.Boolean or FieldKind.Password))
+        .Where(column => (column.ShowInGrid || column.Name == Schema.GroupField) && column.Kind is not (FieldKind.Boolean or FieldKind.Password))
         .Select(column => column.DisplayKey)
         .Prepend(CatalogSchema.TitleKey);
 
-    private RenderFragment RenderCell(FieldSchema field, CatalogRow row) => builder =>
-    {
-        row.TryGetValue(field.DisplayKey, out var value);
-        switch (field.Kind)
-        {
-            case FieldKind.Boolean when field.Name == Schema.StatusField:
-                builder.OpenComponent<StatusBadge>(0);
-                builder.AddAttribute(1, nameof(StatusBadge.Status), value is true ? "Activo" : "Inactivo");
-                builder.CloseComponent();
-                break;
-            case FieldKind.Boolean:
-                builder.AddContent(2, value is true ? "Sí" : "No");
-                break;
-            case FieldKind.MultiLookup when value is string text && text.Length > 0:
-                builder.OpenElement(3, "span");
-                builder.AddAttribute(4, "class", "ibr-cell-tags");
-                builder.AddAttribute(5, "title", text);
-                builder.AddContent(6, text);
-                builder.CloseElement();
-                break;
-            default:
-                builder.OpenElement(7, "span");
-                builder.AddAttribute(8, "class", "ibr-text-muted");
-                builder.AddContent(9, Format(field, value));
-                builder.CloseElement();
-                break;
-        }
-    };
+    // ---------- Agrupación (acordeón) ----------
 
-    private static string Format(FieldSchema field, object? value) => value switch
+    private sealed record Group(string Key, string Label, List<CatalogRow> Rows);
+
+    private List<Group> BuildGroups(IEnumerable<CatalogRow> rows)
     {
-        null => "—",
-        string text when text.Length == 0 => "—",
-        DateTime date when field.Kind == FieldKind.Date => date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
-        DateTime date => date.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture),
-        DateOnly date => date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
-        decimal number => number.ToString("N2", CultureInfo.GetCultureInfo("es-PE")),
-        _ => value.ToString() ?? "—"
-    };
+        var groups = new Dictionary<string, Group>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows)
+        {
+            var label = row.TryGetValue(Schema.GroupField!, out var value) ? CatalogUiText.CellLabel(value?.ToString()) : string.Empty;
+            if (!groups.TryGetValue(label, out var group))
+            {
+                group = new(label, label.Length == 0 ? Schema.GroupEmptyLabel ?? "Sin valor" : label, []);
+                groups[label] = group;
+            }
+
+            group.Rows.Add(row);
+        }
+
+        return [.. groups.Values.OrderBy(GroupRank).ThenBy(group => group.Label, StringComparer.CurrentCultureIgnoreCase)];
+    }
+
+    private int GroupRank(Group group)
+    {
+        if (group.Key.Length == 0) return int.MaxValue;
+        var order = Schema.GroupOrder;
+        if (order is null) return 0;
+
+        var normalized = CatalogUiText.Normalize(group.Key);
+        for (var index = 0; index < order.Count; index++)
+        {
+            if (CatalogUiText.Normalize(order[index]) == normalized) return index;
+        }
+
+        return order.Count;
+    }
+
+    private bool IsExpanded(Group group) => HasQuery || !collapsed.Contains(group.Key);
+
+    private void ToggleGroup(Group group)
+    {
+        if (!collapsed.Add(group.Key)) collapsed.Remove(group.Key);
+    }
+
+    private string GroupCountLabel(Group group) =>
+        $"{group.Rows.Count} {(group.Rows.Count == 1 ? Schema.Singular.ToLowerInvariant() : PluralLabel)}";
 }

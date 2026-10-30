@@ -59,12 +59,31 @@ internal sealed class CatalogDefinition<TEntity> : CatalogDefinition where TEnti
     /// <summary>Campo DateTime? de borrado lógico. Si existe, eliminar solo lo marca.</summary>
     public string? SoftDeleteField { get; init; }
 
+    /// <summary>Indica si Gestión Maestros puede eliminar registros de este catálogo.</summary>
+    public bool CanDelete { get; init; } = true;
+
+    /// <summary>Campo de texto cuyas valores agrupan el listado en secciones desplegables.</summary>
+    public string? GroupField { get; init; }
+
+    /// <summary>Orden deseado de los grupos (se comparan sin tildes ni mayúsculas).</summary>
+    public IReadOnlyList<string>? GroupOrder { get; init; }
+
+    /// <summary>Etiqueta del grupo para los registros sin valor en <see cref="GroupField"/>.</summary>
+    public string? GroupEmptyLabel { get; init; }
+
+    /// <summary>Botón adicional por fila (ej. "Gestionar secciones"): ruta con <c>{key}</c>, icono y texto.</summary>
+    public string? RowLinkHref { get; init; }
+
+    public string? RowLinkIcon { get; init; }
+
+    public string? RowLinkText { get; init; }
+
     public override Type EntityType => typeof(TEntity);
 
     /// <summary>Campo de la entidad. Con <paramref name="options"/> se edita como lista fija (<see cref="FieldKind.Choice"/>).</summary>
-    public CatalogDefinition<TEntity> Field(string property, string label, FieldKind? kind = null, bool grid = true, bool form = true, IReadOnlyList<string>? options = null)
+    public CatalogDefinition<TEntity> Field(string property, string label, FieldKind? kind = null, bool grid = true, bool form = true, IReadOnlyList<string>? options = null, string? section = null, bool hideWhenActive = false)
     {
-        _fields.Add(new FieldDeclaration(property, label, options is null ? kind : FieldKind.Choice, grid, form, IsMany: false, options));
+        _fields.Add(new FieldDeclaration(property, label, options is null ? kind : FieldKind.Choice, grid, form, IsMany: false, options, section, hideWhenActive));
         return this;
     }
 
@@ -232,6 +251,11 @@ internal sealed class CatalogDefinition<TEntity> : CatalogDefinition where TEnti
 
     public override async Task<SaveResult> DeleteAsync(CatalogContext context, object key, CancellationToken cancellationToken)
     {
+        if (!CanDelete)
+        {
+            return SaveResult.Fail("Esta tabla está protegida y no permite eliminar registros.");
+        }
+
         var db = context.Db;
         var keyProperty = KeyProperty(EntityMetadata(db.Model));
         var entity = await db.FindAsync<TEntity>([ConvertValue(key, keyProperty.ClrType)], cancellationToken);
@@ -300,12 +324,19 @@ internal sealed class CatalogDefinition<TEntity> : CatalogDefinition where TEnti
             var isForeignKey = property.GetContainingForeignKeys().Any();
             var kind = declaration.Kind ?? (isForeignKey ? FieldKind.Lookup : InferKind(property));
             var required = !property.IsNullable && kind != FieldKind.Boolean;
+            var referenceSlug = kind == FieldKind.Lookup
+                ? property.GetContainingForeignKeys().FirstOrDefault() is { } foreignKey
+                    ? MaestrosCatalogRegistry.ForEntity(foreignKey.PrincipalEntityType.ClrType)?.Slug
+                    : null
+                : null;
 
             fields.Add(new FieldSchema(property.Name, declaration.Label, kind, property.ClrType,
-                Required: required, MaxLength: property.GetMaxLength(), ShowInGrid: declaration.Grid, ShowInForm: declaration.Form, Options: declaration.Options));
+                Required: required, MaxLength: property.GetMaxLength(), ShowInGrid: declaration.Grid, ShowInForm: declaration.Form, Options: declaration.Options,
+                ReferenceSlug: referenceSlug, Section: declaration.Section, HideWhenActive: declaration.HideWhenActive));
         }
 
-        return new CatalogSchema(Slug, Label, Singular, Icon, Group, Description, keyProperty.Name, TitleLabel, StatusField, fields, Feminine);
+        return new CatalogSchema(Slug, Label, Singular, Icon, Group, Description, keyProperty.Name, TitleLabel, StatusField, fields, Feminine, CanDelete,
+            GroupField, GroupOrder, GroupEmptyLabel, RowLinkText, RowLinkIcon, RowLinkHref);
     }
 
     private static string? Validate(CatalogSchema schema, IDictionary<string, object?> values, bool isNew)
@@ -436,5 +467,5 @@ internal sealed class CatalogDefinition<TEntity> : CatalogDefinition where TEnti
         }
     }
 
-    private sealed record FieldDeclaration(string Name, string Label, FieldKind? Kind, bool Grid, bool Form, bool IsMany, IReadOnlyList<string>? Options = null);
+    private sealed record FieldDeclaration(string Name, string Label, FieldKind? Kind, bool Grid, bool Form, bool IsMany, IReadOnlyList<string>? Options = null, string? Section = null, bool HideWhenActive = false);
 }

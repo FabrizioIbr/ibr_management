@@ -35,12 +35,11 @@ internal static class MaestrosCatalogRegistry
         new CatalogDefinition<Role>
         {
             Slug = "roles", Label = "Roles", Singular = "rol", Icon = "badge", Group = "Seguridad",
-            Description = "Agrupaciones de permisos asignables a usuarios.",
+            Description = "Agrupaciones asignables a usuarios.",
             Display = role => role.RoleName
         }
             .Field(nameof(Role.RoleName), "Nombre", grid: false)
-            .Field(nameof(Role.Description), "Descripción")
-            .Many(nameof(Role.Permissions), "Permisos"),
+            .Field(nameof(Role.Description), "Descripción"),
 
         new CatalogDefinition<Permission>
         {
@@ -51,10 +50,103 @@ internal static class MaestrosCatalogRegistry
             .Field(nameof(Permission.PermissionName), "Nombre", grid: false)
             .Field(nameof(Permission.Description), "Descripción"),
 
+        new CatalogDefinition<Company>
+        {
+            Slug = "empresas", Label = "Empresas", Singular = "empresa", Icon = "business", Group = "Organización",
+            Description = "Empresas sincronizadas desde Buk.",
+            Display = company => company.Name,
+            StatusField = nameof(Company.IsActive),
+            CanDelete = false
+        }
+            .Field(nameof(Company.Name), "Nombre", grid: false)
+            .Field(nameof(Company.Ruc), "RUC")
+            .Field(nameof(Company.BusinessActivity), "Actividad comercial", grid: false)
+            .Field(nameof(Company.Email), "Correo", FieldKind.Email)
+            .Field(nameof(Company.Address), "Dirección", grid: false)
+            .Field(nameof(Company.City), "Ciudad")
+            .Field(nameof(Company.IsActive), "Activa"),
+
+        new CatalogDefinition<Employee>
+        {
+            Slug = "empleados", Label = "Empleados", Singular = "empleado", Icon = "badge", Group = "Organización",
+            Description = "Directorio de empleados sincronizados desde Buk.",
+            Display = employee => employee.FullName,
+            TitleLabel = "Empleado",
+            CanDelete = false
+        }
+            .Field(nameof(Employee.FullName), "Nombre completo", grid: false, section: "Información general")
+            .Field(nameof(Employee.Email), "Correo Buk", FieldKind.Email, section: "Información general")
+            .Field(nameof(Employee.CompanyId), "Empresa", grid: false, section: "Información general")
+            .Field(nameof(Employee.HireDate), "Ingreso", FieldKind.Date, section: "Información general")
+            .Field(nameof(Employee.AreaId), "Área", section: "Ubicación organizacional")
+            .Field(nameof(Employee.CargoId), "Cargo", section: "Ubicación organizacional")
+            .Field(nameof(Employee.BossId), "Jefe", section: "Ubicación organizacional")
+            .Field(nameof(Employee.Status), "Estado", grid: false, section: "Ubicación organizacional")
+            .Field(nameof(Employee.TipoContrato), "Tipo de contrato", grid: false, section: "Datos contractuales")
+            .Field(nameof(Employee.RegimenLaboral), "Régimen laboral", grid: false, section: "Datos contractuales")
+            .Field(nameof(Employee.JornadaHorasSemana), "Horas semanales", grid: false, section: "Datos contractuales")
+            .Field(nameof(Employee.DiasLaboralesSemana), "Días laborales por semana", grid: false, section: "Datos contractuales")
+            .Field(nameof(Employee.DiasLaboralesDetalle), "Días laborales", grid: false, section: "Datos contractuales")
+            .Field(nameof(Employee.DiasVacacionesAnuales), "Vacaciones anuales", grid: false, section: "Datos contractuales")
+            .Field(nameof(Employee.VacacionesProgresivasDesde), "Vacaciones progresivas desde", FieldKind.Date, grid: false, section: "Datos contractuales")
+            .Field(nameof(Employee.FechaCese), "Fecha de cese", FieldKind.Date, grid: false, section: "Cese", hideWhenActive: true)
+            .Field(nameof(Employee.MotivoCese), "Motivo de cese", grid: false, section: "Cese", hideWhenActive: true),
+
+        new CatalogDefinition<AppUser>
+        {
+            Slug = "usuarios-app", Label = "Usuarios de la aplicación", Singular = "usuario", Icon = "group", Group = "Seguridad",
+            Description = "Cuentas enlazadas a empleados y sus roles de acceso.",
+            Display = user => user.EmailCorporativo ?? user.Email,
+            CanDelete = false
+        }
+            .Field(nameof(AppUser.EmailCorporativo), "Correo corporativo", FieldKind.Email, grid: false)
+            .Field(nameof(AppUser.Email), "Correo Buk", FieldKind.Email)
+            .Field(nameof(AppUser.EmployeeId), "Empleado")
+            .Field(nameof(AppUser.AppRole), "Rol de aplicación")
+            .Many(nameof(AppUser.Roles), "Roles")
+            .Field(nameof(AppUser.IsActive), "Activo")
+            .Password("Contraseña", (appUser, password, services) =>
+                appUser.PasswordHash = services.GetRequiredService<IPasswordHasher<User>>().HashPassword(
+                    new User { UserId = appUser.UserId, Email = appUser.EmailCorporativo ?? appUser.Email }, password)),
+
+        new CatalogDefinition<Area>
+        {
+            Slug = "areas", Label = "Áreas", Singular = "área", Feminine = true, Icon = "account_tree", Group = "Organización",
+            Description = "Áreas y jerarquía importadas desde Buk.",
+            Display = area => area.Name,
+            TitleLabel = "Área",
+            CanDelete = false
+        }
+            .Field(nameof(Area.Name), "Nombre", grid: false)
+            .Field(nameof(Area.Status), "Estado")
+            .Field(nameof(Area.ParentAreaId), "Área padre")
+            .Field(nameof(Area.DepartmentName), "Departamento")
+            .Field(nameof(Area.DivisionName), "División")
+            .Field(nameof(Area.CostCenter), "Centro de costo"),
+
+        new CatalogDefinition<Cargo>
+        {
+            Slug = "cargos", Label = "Cargos", Singular = "cargo", Icon = "work", Group = "Organización",
+            Description = "Cargos importados desde Buk y sus áreas.",
+            Display = cargo => TitleCase.To(cargo.Name),
+            TitleLabel = "Cargo",
+            CanDelete = false,
+            GroupField = nameof(Cargo.RoleFamilyName),
+            GroupEmptyLabel = "Sin familia",
+            GroupOrder = ["1era línea - Gerencia", "2da línea - Jefes", "3era línea - Supervisión", "Ejecutivos"]
+        }
+            .Field(nameof(Cargo.Name), "Nombre", grid: false)
+            .Field(nameof(Cargo.Code), "Código", grid: false)
+            .Field(nameof(Cargo.RoleFamilyName), "Familia de rol", grid: false)
+            .Field(nameof(Cargo.Description), "Descripción", grid: false)
+            .Field(nameof(Cargo.Requirements), "Requisitos", grid: false)
+            .Many(nameof(Cargo.Areas), "Áreas"),
+
+        // Catálogo legacy no publicado: la instalación actual no tiene la tabla Positions.
         new CatalogDefinition<Position>
         {
             Slug = "posiciones", Label = "Posiciones", Singular = "posición", Feminine = true, Icon = "work", Group = "Organización",
-            Description = "Cargos, su departamento y a quién reportan.",
+            Description = "Catálogo legacy no publicado en el portal actual.",
             Display = position => position.PositionName,
             TitleLabel = "Posición"
         }
@@ -68,7 +160,10 @@ internal static class MaestrosCatalogRegistry
             Description = "Tarjetas del Dashboard y quién puede verlas.",
             Display = portal => portal.Name,
             StatusField = nameof(Portal.IsActive),
-            SoftDeleteField = nameof(Portal.DeletedAt)
+            SoftDeleteField = nameof(Portal.DeletedAt),
+            RowLinkText = "Gestionar secciones",
+            RowLinkIcon = "dashboard_customize",
+            RowLinkHref = "/admin/secciones?portal_id={key}"
         }
             .Field(nameof(Portal.Name), "Nombre", grid: false)
             .Field(nameof(Portal.Description), "Descripción")
@@ -84,14 +179,13 @@ internal static class MaestrosCatalogRegistry
             Slug = "secciones", Label = "Secciones", Singular = "sección", Feminine = true, Icon = "view_list", Group = "Configuración",
             Description = "Páginas de cada portal: tarjetas del inicio y enlaces del sidebar.",
             Display = section => section.Title,
-            TitleLabel = "Sección",
-            StatusField = nameof(PortalSection.IsActive)
+            TitleLabel = "Sección"
         }
             .Field(nameof(PortalSection.Title), "Título", grid: false)
-            .Field(nameof(PortalSection.PortalId), "Portal")
-            .Field(nameof(PortalSection.SectionGroup), "Grupo del sidebar")
+            .Field(nameof(PortalSection.PortalId), "Portal", grid: false)
+            .Field(nameof(PortalSection.SectionGroup), "Grupo menú")
             .Field(nameof(PortalSection.Route), "Ruta (ej. /portal-x/mi-pagina)")
-            .Field(nameof(PortalSection.Status), "Estado", options: PortalStatus.SectionOptions)
+            .Field(nameof(PortalSection.Status), "Disponibilidad", options: PortalStatus.SectionOptions)
             .Field(nameof(PortalSection.DisplayOrder), "Orden")
             .Field(nameof(PortalSection.Icon), "Icono (nombre Material o código SVG)", FieldKind.Text, grid: false)
             .Field(nameof(PortalSection.Description), "Descripción", grid: false)

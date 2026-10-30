@@ -23,7 +23,7 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
 
         if (user is null)
         {
-            return Unauthorized();
+            return Unauthorized(new { message = "El correo corporativo o la contraseña no son válidos." });
         }
 
         var claims = new List<Claim>
@@ -32,6 +32,11 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
             new Claim(ClaimTypes.Email, user.Email),
             new Claim(ClaimTypes.Name, user.FullName)
         };
+
+        if (user.EmployeeId is { } employeeId)
+        {
+            claims.Add(new Claim("employee_id", employeeId.ToString()));
+        }
 
         claims.AddRange(user.Roles.Select(role => new Claim(ClaimTypes.Role, role)));
 

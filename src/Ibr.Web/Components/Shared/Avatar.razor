@@ -3,8 +3,19 @@
 @code {
     [Parameter] public string? Name { get; set; }
 
-    private string Initials => string.Concat((Name ?? "?")
-        .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-        .Take(2)
-        .Select(part => char.ToUpperInvariant(part[0])));
+    private string Initials
+    {
+        get
+        {
+            var parts = (Name ?? string.Empty)
+                .Split([' ', '-', '/'], StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2)
+            {
+                return string.Concat(parts[0][0], parts[1][0]).ToUpperInvariant();
+            }
+
+            var single = parts.FirstOrDefault() ?? "?";
+            return single.Length >= 2 ? single[..2].ToUpperInvariant() : single.ToUpperInvariant();
+        }
+    }
 }

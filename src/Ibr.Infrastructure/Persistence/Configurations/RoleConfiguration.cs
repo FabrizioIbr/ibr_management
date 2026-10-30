@@ -13,20 +13,5 @@ public class RoleConfiguration : IEntityTypeConfiguration<Role>
         builder.Property(role => role.RoleId).HasColumnName("RoleID");
         builder.Property(role => role.Description).HasMaxLength(255);
         builder.Property(role => role.RoleName).HasMaxLength(50);
-        builder.HasMany(role => role.Permissions)
-            .WithMany(permission => permission.Roles)
-            .UsingEntity<Dictionary<string, object>>(
-                "RolePermission",
-                right => right.HasOne<Permission>().WithMany().HasForeignKey("PermissionId")
-                    .OnDelete(DeleteBehavior.Cascade).HasConstraintName("FK_RolePermissions_Permissions"),
-                left => left.HasOne<Role>().WithMany().HasForeignKey("RoleId")
-                    .OnDelete(DeleteBehavior.Cascade).HasConstraintName("FK_RolePermissions_Roles"),
-                join =>
-                {
-                    join.HasKey("RoleId", "PermissionId").HasName("PK__RolePerm__6400A18A3FA67306");
-                    join.ToTable("RolePermissions");
-                    join.IndexerProperty<int>("RoleId").HasColumnName("RoleID");
-                    join.IndexerProperty<int>("PermissionId").HasColumnName("PermissionID");
-                });
     }
 }
