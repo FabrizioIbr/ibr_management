@@ -33,4 +33,33 @@
     color: #16A34A;
 }
 
-.ibr-active-check .rz-icon { font-size: 1.05rem; }
+.ibr-audit-warning {
+    display: inline-flex;
+    color: #DC2626;
+}
+
+.ibr-active-check .rz-icon, .ibr-audit-warning .rz-icon { font-size: 1.05rem; }
+
+/* ---------- Matriz de planificación ---------- */
+.ibr-matrix-scroll { overflow: auto; max-width: 100%; }
+.ibr-matrix { border-collapse: separate; border-spacing: 0; min-width: max-content; width: 100%; }
+.ibr-matrix th, .ibr-matrix td { padding: .55rem .7rem; border-bottom: 1px solid var(--ibr-border); background: var(--ibr-surface); color: var(--ibr-text); font-size: .82rem; text-align: left; vertical-align: top; }
+.ibr-matrix thead th { position: sticky; top: 0; z-index: 4; white-space: nowrap; }
+.ibr-matrix__fix { position: sticky; z-index: 2; }
+.ibr-matrix thead .ibr-matrix__fix { z-index: 5; }
+.ibr-matrix__fix--name { left: 0; width: 240px; min-width: 240px; max-width: 240px; }
+.ibr-matrix__fix--saldo { left: 240px; width: 90px; min-width: 90px; }
+.ibr-matrix__fix--vence { left: 330px; width: 120px; min-width: 120px; border-right: 1px solid var(--ibr-border); }
+.ibr-matrix__month { min-width: 170px; }
+.ibr-matrix__month-label { font-weight: 750; }
+.ibr-matrix__alert { display: inline-flex; gap: .25rem; margin-top: .2rem; padding: .05rem .45rem; border-radius: 999px; background: #FEE2E2; color: #B91C1C; font-size: .68rem; font-weight: 700; }
+.ibr-matrix__name { font-weight: 650; }
+.ibr-matrix__boss { color: var(--ibr-blue); font-size: .74rem; font-weight: 750; font-style: normal; margin-inline: .3rem .1rem; }
+.ibr-matrix__row--boss td { background: #F5F8FF; }
+.ibr-matrix__legend { display: inline-flex; gap: .4rem; align-items: center; }
+
+.ibr-block { display: block; border-radius: 8px; padding: .3rem .5rem; font-size: .7rem; font-weight: 700; white-space: nowrap; margin-block: .15rem; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.ibr-block--buk { background: #E2E8F0; border: 1px solid #94A3B8; color: #334155; }
+.ibr-block--plan { background: #EFF6FF; border: 1px dashed #93C5FD; color: #1D4ED8; }
+.ibr-block--consolidado { background: #DCFCE7; border: 1px solid #86EFAC; color: #15803D; }
+.ibr-block--vencen { background: #FEE2E2; border: 1px solid #FCA5A5; color: #B91C1C; }

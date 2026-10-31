@@ -15,9 +15,13 @@ public sealed record VacationBalanceDto(
     DateOnly? NextExpiration,
     string RiskLevel,
     /// <summary>Días en solicitudes pre-aprobadas pendientes de gozar.</summary>
-    decimal DaysPreApproved = 0)
+    decimal DaysPreApproved = 0,
+    /// <summary>Días en solicitudes ya aprobadas (en curso/gozadas).</summary>
+    decimal DaysApproved = 0,
+    /// <summary>True si alguna solicitud fue borrada en Buk (RequiereAuditoria = 1).</summary>
+    bool RequiresAudit = false)
 {
-    public bool HasActiveRequests => DaysPreApproved > 0;
+    public bool HasActiveRequests => DaysPreApproved > 0 || DaysApproved > 0;
 }
 
 public sealed record VacationDashboardDto(
@@ -32,6 +36,38 @@ public sealed record VacationSettingsDto(int AlertDays, int CriticalDays);
 
 /// <summary>Resultado de registrar un plan de vacaciones desde el portal.</summary>
 public sealed record VacationPlanResult(bool Succeeded, int? VacationId = null, string? Error = null);
+
+/// <summary>Mes visible en la matriz de planificación.</summary>
+public sealed record VacationMatrizMonthDto(int Year, int Month, string Label);
+
+/// <summary>Bloque de días en la matriz: "buk" (sincronizada), "plan" (local del jefe) o "consolidado" (ambas coinciden).</summary>
+public sealed record VacationMatrizBlockDto(
+    int VacationId,
+    DateOnly StartDate,
+    DateOnly EndDate,
+    string Kind,
+    decimal CalendarDays,
+    decimal WorkingDays,
+    string Status);
+
+/// <summary>Días con saldo FIFO que vencen en un mes de la ventana visible.</summary>
+public sealed record VacationMatrizExpirationDto(int Year, int Month, decimal Days);
+
+public sealed record VacationMatrizRowDto(
+    int EmployeeId,
+    string FullName,
+    string Email,
+    bool IsBoss,
+    decimal DaysPending,
+    DateOnly? NextExpiration,
+    bool RequiresAudit,
+    bool HasActiveRequests,
+    IReadOnlyList<VacationMatrizBlockDto> Blocks,
+    IReadOnlyList<VacationMatrizExpirationDto> Expirations);
+
+public sealed record VacationMatrizDto(
+    IReadOnlyList<VacationMatrizMonthDto> Months,
+    IReadOnlyList<VacationMatrizRowDto> Rows);
 
 /// <summary>Periodo vacacional con su estado en lenguaje natural para el detalle del colaborador.</summary>
 public sealed record VacationPeriodResumenDto(
@@ -95,4 +131,7 @@ public interface IVacationTeamService
 
     /// <summary>Registra un plan de vacaciones (solicitud "pre_approved") para un colaborador del equipo.</summary>
     Task<VacationPlanResult> PlanificarAsync(int bossEmployeeId, int targetEmployeeId, DateOnly start, DateOnly end, bool unrestricted, CancellationToken cancellationToken = default);
+
+    /// <summary>Matriz de planificación: empleado × próximos 4 meses con bloques Buk/Plan/Consolidado y vencimientos.</summary>
+    Task<VacationMatrizDto> GetMatrizAsync(int bossEmployeeId, bool unrestricted, CancellationToken cancellationToken = default);
 }

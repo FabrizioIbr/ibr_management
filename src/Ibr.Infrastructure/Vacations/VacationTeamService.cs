@@ -1,3 +1,4 @@
+using System.Globalization;
 using Ibr.Application.Vacations;
 using Ibr.Domain.Entities;
 using Ibr.Infrastructure.Persistence;
@@ -74,12 +75,20 @@ public sealed class VacationTeamService(
             .GroupBy(row => row.EmployeeId).ToDictionary(group => group.Key, group => group.Sum(row => row.CalendarDays));
         var preApprovedByEmployee = requests.Where(request => request.Status == "pre_approved")
             .GroupBy(row => row.EmployeeId).ToDictionary(group => group.Key, group => group.Sum(row => row.CalendarDays));
+        var auditEmployeeIds = await db.VacationRequests
+            .AsNoTracking()
+            .Where(request => employeeIds.Contains(request.EmployeeId) && request.RequiereAuditoria == true)
+            .Select(request => request.EmployeeId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        var requiresAudit = auditEmployeeIds.ToHashSet();
         var config = settings.Current;
         var today = DateOnly.FromDateTime(DateTime.Now);
 
         return team
             .Select(employee => ComputeBalance(employee, periodsByEmployee.GetValueOrDefault(employee.EmployeeId, []),
                 takenByEmployee.GetValueOrDefault(employee.EmployeeId), preApprovedByEmployee.GetValueOrDefault(employee.EmployeeId),
+                requiresAudit.Contains(employee.EmployeeId),
                 bosses, config.AlertDays, config.CriticalDays, today))
             .OrderBy(balance => balance.FullName)
             .ToList();
@@ -329,6 +338,11 @@ public sealed class VacationTeamService(
 
         var plan = new VacationRequest
         {
+            // Los planes del jefe usan VacationId negativo: los IDs de Buk son positivos y la PK no es identidad.
+            VacationId = (await db.VacationRequests
+                .Where(request => request.VacationId < 0)
+                .Select(request => (int?)request.VacationId)
+                .MinAsync(cancellationToken) ?? 0) - 1,
             EmployeeId = targetEmployeeId,
             StartDate = start,
             EndDate = end,
@@ -354,6 +368,95 @@ public sealed class VacationTeamService(
         }
 
         return count;
+    }
+
+    public async Task<VacationMatrizDto> GetMatrizAsync(int bossEmployeeId, bool unrestricted, CancellationToken cancellationToken = default)
+    {
+        var balances = await GetBalancesAsync(bossEmployeeId, unrestricted, cancellationToken);
+
+        var now = DateOnly.FromDateTime(DateTime.Now);
+        var firstMonth = new DateOnly(now.Year, now.Month, 1);
+        var windowEnd = firstMonth.AddMonths(4).AddDays(-1);
+        var culture = CultureInfo.GetCultureInfo("es-PE");
+        var months = Enumerable.Range(0, 4).Select(offset =>
+        {
+            var start = firstMonth.AddMonths(offset);
+            var name = culture.DateTimeFormat.GetMonthName(start.Month);
+            return new VacationMatrizMonthDto(start.Year, start.Month, $"{char.ToUpper(name[0], culture)}{name[1..]} {start.Year}");
+        }).ToList();
+
+        if (balances.Count == 0) return new VacationMatrizDto(months, []);
+
+        var employeeIds = balances.Select(balance => balance.EmployeeId).ToArray();
+        var requests = await db.VacationRequests
+            .AsNoTracking()
+            .Where(request => employeeIds.Contains(request.EmployeeId)
+                && (request.Status == "approved" || request.Status == "pre_approved")
+                && request.StartDate <= windowEnd && request.EndDate >= firstMonth)
+            .ToListAsync(cancellationToken);
+
+        var allPeriods = await db.VacationPeriods
+            .AsNoTracking()
+            .Where(period => employeeIds.Contains(period.EmployeeId))
+            .OrderBy(period => period.EmployeeId)
+            .ThenBy(period => period.PeriodStartDate)
+            .ToListAsync(cancellationToken);
+
+        var consumed = await db.VacationRequests
+            .AsNoTracking()
+            .Where(request => employeeIds.Contains(request.EmployeeId) && request.Status == "approved")
+            .GroupBy(request => request.EmployeeId)
+            .Select(group => new { EmployeeId = group.Key, Days = group.Sum(request => request.CalendarDays) })
+            .ToListAsync(cancellationToken);
+        var consumedByEmployee = consumed.ToDictionary(row => row.EmployeeId, row => row.Days);
+        var periodsByEmployee = allPeriods.GroupBy(period => period.EmployeeId).ToDictionary(group => group.Key, group => group.ToList());
+
+        var rows = new List<VacationMatrizRowDto>();
+        foreach (var balance in balances)
+        {
+            var blocks = requests
+                .Where(request => request.EmployeeId == balance.EmployeeId)
+                .GroupBy(request => (request.StartDate, request.EndDate))
+                .Select(group =>
+                {
+                    var hasBuk = group.Any(request => request.VacationId > 0);
+                    var hasPlan = group.Any(request => request.VacationId <= 0);
+                    var kind = hasBuk && hasPlan ? "consolidado" : hasPlan ? "plan" : "buk";
+                    var source = group.OrderBy(request => request.VacationId <= 0 ? 1 : 0).First();
+                    return new VacationMatrizBlockDto(source.VacationId, source.StartDate, source.EndDate, kind, source.CalendarDays, source.WorkingDays, source.Status);
+                })
+                .OrderBy(block => block.StartDate)
+                .ToList();
+
+            var employeePeriods = periodsByEmployee.GetValueOrDefault(balance.EmployeeId, []);
+            var pool = consumedByEmployee.GetValueOrDefault(balance.EmployeeId)
+                       + employeePeriods.Where(period => period.EarnedDays < 0).Sum(period => -period.EarnedDays);
+            var expirations = new List<VacationMatrizExpirationDto>();
+            foreach (var period in employeePeriods)
+            {
+                if (period.EarnedDays <= 0) continue;
+                var used = Math.Min(Math.Max(pool, 0), period.EarnedDays);
+                pool -= used;
+                var remaining = period.EarnedDays - used;
+                if (remaining <= 0 || period.ExpirationDate is not { } expiration) continue;
+                if (expiration < firstMonth || expiration > windowEnd) continue;
+                expirations.Add(new VacationMatrizExpirationDto(expiration.Year, expiration.Month, remaining));
+            }
+
+            var merged = expirations
+                .GroupBy(expiration => (expiration.Year, expiration.Month))
+                .Select(group => new VacationMatrizExpirationDto(group.Key.Year, group.Key.Month, group.Sum(expiration => expiration.Days)))
+                .ToList();
+
+            rows.Add(new VacationMatrizRowDto(
+                balance.EmployeeId, balance.FullName, balance.Email,
+                balance.EmployeeId == bossEmployeeId,
+                balance.DaysPending, balance.NextExpiration, balance.RequiresAudit, balance.HasActiveRequests,
+                blocks, merged));
+        }
+
+        rows = [.. rows.OrderByDescending(row => row.IsBoss).ThenBy(row => row.FullName, StringComparer.CurrentCultureIgnoreCase)];
+        return new VacationMatrizDto(months, rows);
     }
 
     private async Task<List<Employee>> GetTeamEmployeesAsync(int bossEmployeeId, bool unrestricted, CancellationToken cancellationToken)    {
@@ -427,6 +530,7 @@ public sealed class VacationTeamService(
         List<VacationPeriod> periods,
         decimal takenDays,
         decimal preApprovedDays,
+        bool requiresAudit,
         IReadOnlyDictionary<int, string> bosses,
         int alertDays,
         int criticalDays,
@@ -487,6 +591,8 @@ public sealed class VacationTeamService(
             critico + alerta,
             nextExpiration,
             level,
-            preApprovedDays);
+            preApprovedDays,
+            takenDays,
+            requiresAudit);
     }
 }
