@@ -194,6 +194,83 @@ public sealed class VacationTeamServiceTests : IAsyncLifetime
         Assert.Equal((120, 45), (reloaded.Current.AlertDays, reloaded.Current.CriticalDays));
     }
 
+    [Fact]
+    public async Task Plan_is_saved_in_planificacion_as_pending_and_shown_in_matrix()
+    {
+        var start = Today.AddDays(10);
+        var result = await _service.PlanificarAsync(1, 3, start, start.AddDays(4), unrestricted: false, "  Coordinado  ", "jefa@example.test");
+
+        Assert.True(result.Succeeded, result.Error);
+        var plan = await _db.VacationPlans.AsNoTracking().SingleAsync(candidate => candidate.Id == result.PlanId);
+        Assert.Equal(VacationPlanStatus.Pendiente, plan.Estado);
+        Assert.Equal("Coordinado", plan.Observaciones);
+        Assert.Equal(1, plan.CreatedByEmployeeId);
+        Assert.Equal("jefa@example.test", plan.CreatedByEmail);
+        Assert.InRange(plan.DiasPropuestos, 1m, 5m);
+        Assert.DoesNotContain(await _db.VacationRequests.ToListAsync(), request => request.VacationId < 0);
+
+        var matriz = await _service.GetMatrizAsync(1, unrestricted: false);
+        var block = Assert.Single(matriz.Rows.Single(row => row.EmployeeId == 3).Blocks);
+        Assert.Equal("plan", block.Kind);
+        Assert.Equal(result.PlanId, block.PlanId);
+        Assert.Null(block.VacationId);
+    }
+
+    [Fact]
+    public async Task Plan_rejects_overlaps_and_employees_outside_the_tree()
+    {
+        var start = Today.AddDays(20);
+        Assert.True((await _service.PlanificarAsync(1, 3, start, start.AddDays(5), unrestricted: false)).Succeeded);
+
+        var overlap = await _service.PlanificarAsync(1, 3, start.AddDays(3), start.AddDays(8), unrestricted: false);
+        Assert.False(overlap.Succeeded);
+
+        var outside = await _service.PlanificarAsync(1, 6, start, start.AddDays(2), unrestricted: false);
+        Assert.False(outside.Succeeded);
+    }
+
+    [Fact]
+    public async Task Matching_buk_request_confirms_the_plan_and_shows_buk_status()
+    {
+        var start = Today.AddDays(15);
+        var end = start.AddDays(6);
+        var result = await _service.PlanificarAsync(1, 3, start, end, unrestricted: false);
+        Assert.True(result.Succeeded, result.Error);
+
+        // El colaborador registra después en Buk la solicitud con las mismas fechas.
+        _db.VacationRequests.Add(new VacationRequest
+        {
+            VacationId = 500, EmployeeId = 3, StartDate = start, EndDate = end,
+            CalendarDays = 7, WorkingDays = 5, Status = "pre_approved", RequestedAt = DateTime.Now
+        });
+        await _db.SaveChangesAsync();
+
+        var matriz = await _service.GetMatrizAsync(1, unrestricted: false);
+        var block = Assert.Single(matriz.Rows.Single(row => row.EmployeeId == 3).Blocks);
+        Assert.Equal("consolidado", block.Kind);
+        Assert.Equal(500, block.VacationId);
+        Assert.Equal("pre_approved", block.BukStatus);
+        Assert.Equal(VacationPlanStatus.Confirmado, block.PlanStatus);
+
+        var stored = await _db.VacationPlans.AsNoTracking().SingleAsync(plan => plan.Id == result.PlanId);
+        Assert.Equal(VacationPlanStatus.Confirmado, stored.Estado);
+
+        var delete = await _service.EliminarPlanAsync(1, result.PlanId!.Value, unrestricted: false);
+        Assert.False(delete.Succeeded);
+    }
+
+    [Fact]
+    public async Task Pending_plan_can_be_deleted_only_inside_the_tree()
+    {
+        var start = Today.AddDays(30);
+        var result = await _service.PlanificarAsync(1, 2, start, start.AddDays(2), unrestricted: false);
+        Assert.True(result.Succeeded, result.Error);
+
+        Assert.False((await _service.EliminarPlanAsync(4, result.PlanId!.Value, unrestricted: false)).Succeeded);
+        Assert.True((await _service.EliminarPlanAsync(1, result.PlanId.Value, unrestricted: false)).Succeeded);
+        Assert.False(await _db.VacationPlans.AnyAsync());
+    }
+
     private static Employee Employee(int id, string name, int? bossId, string status) =>
         new() { EmployeeId = id, CompanyId = 2, FullName = name, Email = $"{id}@example.test", BossId = bossId, Status = status };
 

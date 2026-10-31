@@ -5,6 +5,7 @@
 @using System.Text
 @using Ibr.Application.Vacations
 @inject IVacationTeamService TeamService
+@inject NavigationManager Navigation
 
 <PageTitle>Dashboard de vacaciones</PageTitle>
 
@@ -15,6 +16,7 @@
 <PageHeader Eyebrow="Control de vacaciones" Title="Dashboard del equipo" Subtitle="Estado de los saldos vacacionales del equipo a tu cargo.">
     <Actions>
         <RadzenButton Text="Actualizar" Icon="refresh" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Click="@LoadAsync" Disabled="@loading" />
+        <RadzenButton Text="Ir a planificación" Icon="calendar_month" ButtonStyle="ButtonStyle.Primary" Click="@GoToPlanning" Disabled="@(loading || noAccess)" />
     </Actions>
 </PageHeader>
 
@@ -31,9 +33,9 @@ else if (loading)
     <div class="ibr-stats">
         <div class="ibr-skeleton"></div><div class="ibr-skeleton"></div><div class="ibr-skeleton"></div><div class="ibr-skeleton"></div>
     </div>
-    <div class="ibr-card-grid">
-        <div class="ibr-skeleton" style="min-height:260px"></div>
-        <div class="ibr-skeleton" style="min-height:260px"></div>
+    <div class="ibr-dash-grid">
+        <div class="ibr-skeleton" style="min-height:320px"></div>
+        <div class="ibr-skeleton" style="min-height:320px"></div>
     </div>
 }
 else if (dashboard is not null)
@@ -41,8 +43,8 @@ else if (dashboard is not null)
     <div class="ibr-stats">
         <StatCard Label="Colaboradores" Value="@dashboard.TeamSize.ToString()" Icon="groups" />
         <StatCard Label="Días pendientes del equipo" Value="@VacationUi.Days(dashboard.TotalPendingDays)" Icon="hourglass_top" />
-        <StatCard Label="Días próximos a vencer" Value="@VacationUi.Days(dashboard.TotalSoonToExpireDays)" Icon="event_upcoming" />
-        <StatCard Label="En riesgo crítico o vencido" Value="@dashboard.MembersAtRisk.ToString()" Icon="local_fire_department" Tone="@(dashboard.MembersAtRisk > 0 ? null : "success")" />
+        <StatCard Label="Días próximos a vencer" Value="@VacationUi.Days(dashboard.TotalSoonToExpireDays)" Icon="event_upcoming" Tone="@(dashboard.TotalSoonToExpireDays > 0 ? "warning" : "success")" />
+        <StatCard Label="En riesgo crítico o vencido" Value="@dashboard.MembersAtRisk.ToString()" Icon="local_fire_department" Tone="@(dashboard.MembersAtRisk > 0 ? "danger" : "success")" />
     </div>
 
     @if (dashboard.TeamSize == 0)
@@ -55,29 +57,66 @@ else if (dashboard is not null)
     }
     else
     {
-        <div class="ibr-card-grid">
+        <div class="ibr-callout @(dashboard.MembersAtRisk > 0 ? "ibr-callout--danger" : "ibr-callout--success")">
+            <span class="ibr-callout__icon"><RadzenIcon Icon="@(dashboard.MembersAtRisk > 0 ? "priority_high" : "verified")" /></span>
+            <div class="ibr-callout__text">
+                @if (dashboard.MembersAtRisk > 0)
+                {
+                    <strong>@dashboard.MembersAtRisk de @dashboard.TeamSize colaboradores necesitan planificar sus vacaciones</strong>
+                    <span>Tienen días vencidos o a punto de vencer. Prográmalos en la matriz de planificación para evitar que se pierdan.</span>
+                }
+                else
+                {
+                    <strong>Tu equipo está al día</strong>
+                    <span>Nadie tiene días vencidos ni en riesgo crítico. Promedio de @VacationUi.Days(AveragePending) días pendientes por colaborador.</span>
+                }
+            </div>
+            @if (dashboard.MembersAtRisk > 0)
+            {
+                <RadzenButton Text="Planificar ahora" Icon="arrow_forward" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Click="@GoToPlanning" />
+            }
+        </div>
+
+        <div class="ibr-dash-grid">
             <div class="ibr-card">
                 <h2 class="ibr-section-title">Distribución por nivel de riesgo</h2>
-                <div class="ibr-donut-wrap">
-                    <div class="ibr-donut" style="@DonutStyle()" role="img" aria-label="Distribución de riesgo">
+                <div class="ibr-risk">
+                    <div class="ibr-donut" style="@DonutStyle()" role="img" aria-label="@DonutLabel()">
                         <div class="ibr-donut__hole">
                             <div>
-                                <div class="ibr-donut__value">@dashboard.TeamSize</div>
-                                <div class="ibr-donut__label">colaboradores</div>
+                                <div class="ibr-donut__value">@HealthyPercent()%</div>
+                                <div class="ibr-donut__label">sin riesgo</div>
                             </div>
                         </div>
                     </div>
-                    <ul class="ibr-legend">
+                    <ul class="ibr-risk__list">
                         @foreach (var (level, color) in Legend)
                         {
-                            <li><span class="ibr-legend__dot" style="background:@color"></span>@VacationUi.Risk(level).Label <span class="ibr-legend__count">@dashboard.RiskCounts.GetValueOrDefault(level)</span></li>
+                            var count = dashboard.RiskCounts.GetValueOrDefault(level);
+                            <li class="ibr-risk__item @(count == 0 ? "is-empty" : null)">
+                                <div class="ibr-risk__head">
+                                    <span class="ibr-legend__dot" style="background:@color"></span>
+                                    <span class="ibr-risk__label">@VacationUi.Risk(level).Label</span>
+                                    <span class="ibr-risk__count">@count</span>
+                                    <span class="ibr-risk__percent">@Percent(count)%</span>
+                                </div>
+                                <div class="ibr-progress ibr-risk__bar">
+                                    <div class="ibr-progress__fill" style="width:@Percent(count)%;background:@color"></div>
+                                </div>
+                            </li>
                         }
                     </ul>
                 </div>
             </div>
 
             <div class="ibr-card">
-                <h2 class="ibr-section-title">Top 5 · días en rojo <span>@dashboard.TopCritical.Count</span></h2>
+                <div class="ibr-dash-card__head">
+                    <h2 class="ibr-section-title">Prioridad de planificación <span>Top @dashboard.TopCritical.Count</span></h2>
+                    @if (dashboard.TopCritical.Count > 0)
+                    {
+                        <RadzenButton Text="Ver todos" Icon="chevron_right" IconPosition="IconPosition.Right" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small" Click="@GoToPlanning" />
+                    }
+                </div>
                 @if (dashboard.TopCritical.Count == 0)
                 {
                     <div class="ibr-empty">
@@ -88,19 +127,38 @@ else if (dashboard is not null)
                 }
                 else
                 {
-                    <div class="ibr-top-list">
-                        @foreach (var member in dashboard.TopCritical)
+                    <ol class="ibr-rank">
+                        @foreach (var (member, index) in dashboard.TopCritical.Select((member, index) => (member, index)))
                         {
-                            <div class="ibr-top-item">
-                                <div class="ibr-top-item__meta">
-                                    <Avatar Name="@member.FullName" />
-                                    <span class="ibr-top-item__name">@member.FullName</span>
+                            var total = member.DaysVencido + member.DaysCritico;
+                            <li class="ibr-rank__item">
+                                <span class="ibr-rank__pos">@(index + 1)</span>
+                                <Avatar Name="@member.FullName" />
+                                <div class="ibr-rank__who">
+                                    <span class="ibr-rank__name" title="@member.FullName">@member.FullName</span>
+                                    <span class="ibr-rank__detail">
+                                        @if (member.DaysVencido > 0)
+                                        {
+                                            <span class="ibr-rank__chip ibr-rank__chip--danger">@VacationUi.Days(member.DaysVencido) vencidos</span>
+                                        }
+                                        @if (member.DaysCritico > 0)
+                                        {
+                                            <span class="ibr-rank__chip ibr-rank__chip--orange">@VacationUi.Days(member.DaysCritico) críticos</span>
+                                        }
+                                        @if (member.NextExpiration is not null)
+                                        {
+                                            <span class="ibr-rank__date">Vence @VacationUi.Date(member.NextExpiration)</span>
+                                        }
+                                    </span>
                                 </div>
-                                <span class="ibr-top-item__days">@VacationUi.Days(member.DaysVencido + member.DaysCritico) días</span>
+                                <div class="ibr-rank__total">
+                                    <strong>@VacationUi.Days(total)</strong>
+                                    <span>días</span>
+                                </div>
                                 <span class="ibr-badge ibr-badge--@VacationUi.Risk(member.RiskLevel).BadgeClass">@VacationUi.Risk(member.RiskLevel).Label</span>
-                            </div>
+                            </li>
                         }
-                    </div>
+                    </ol>
                 }
             </div>
         </div>
@@ -149,12 +207,25 @@ else if (dashboard is not null)
         }
     }
 
+    private void GoToPlanning() => Navigation.NavigateTo("/control-vacaciones/planificacion");
+
+    private decimal AveragePending => dashboard is { TeamSize: > 0 } ? dashboard.TotalPendingDays / dashboard.TeamSize : 0;
+
+    private int Percent(int count) => dashboard is { TeamSize: > 0 } ? (int)Math.Round(count * 100d / dashboard.TeamSize) : 0;
+
+    private int HealthyPercent() => Percent(dashboard?.RiskCounts.GetValueOrDefault("normal") ?? 0);
+
+    private string DonutLabel() => dashboard is null
+        ? "Distribución de riesgo"
+        : "Distribución de riesgo: " + string.Join(", ", Legend.Select(item =>
+            $"{VacationUi.Risk(item.Level).Label} {dashboard.RiskCounts.GetValueOrDefault(item.Level)}"));
+
     private string DonutStyle()
     {
         var total = dashboard?.TeamSize ?? 0;
         if (dashboard is null || total == 0)
         {
-            return "background: conic-gradient(#E2E8F0 0deg 360deg);";
+            return "background: conic-gradient(var(--ibr-border) 0deg 360deg);";
         }
 
         var segments = new StringBuilder();

@@ -10,6 +10,6 @@
     [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
     [Parameter, EditorRequired] public string Value { get; set; } = string.Empty;
     [Parameter] public string Icon { get; set; } = "insights";
-    /// <summary>Opcional: "success" o "muted". Vacío usa el azul de marca.</summary>
+    /// <summary>Opcional: "success", "warning", "danger" o "muted". Vacío usa el azul de marca.</summary>
     [Parameter] public string? Tone { get; set; }
 }

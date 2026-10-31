@@ -34,21 +34,44 @@ public sealed record VacationDashboardDto(
 
 public sealed record VacationSettingsDto(int AlertDays, int CriticalDays);
 
-/// <summary>Resultado de registrar un plan de vacaciones desde el portal.</summary>
-public sealed record VacationPlanResult(bool Succeeded, int? VacationId = null, string? Error = null);
+/// <summary>Resultado de registrar o eliminar un plan de vacaciones (tabla Planificacion_Vacaciones) desde el portal.</summary>
+public sealed record VacationPlanResult(bool Succeeded, int? PlanId = null, string? Error = null);
+
+/// <summary>Estados de un plan del jefe frente a Buk.</summary>
+public static class VacationPlanStatus
+{
+    /// <summary>Plan registrado por el jefe; aún no existe en Buk una solicitud con esas fechas.</summary>
+    public const string Pendiente = "Pendiente";
+
+    /// <summary>Existe en Buk una solicitud del mismo colaborador con las mismas fechas.</summary>
+    public const string Confirmado = "Confirmado";
+}
 
 /// <summary>Mes visible en la matriz de planificación.</summary>
 public sealed record VacationMatrizMonthDto(int Year, int Month, string Label);
 
-/// <summary>Bloque de días en la matriz: "buk" (sincronizada), "plan" (local del jefe) o "consolidado" (ambas coinciden).</summary>
+/// <summary>
+/// Bloque de días en la matriz: "buk" (solicitud sincronizada), "plan" (plan del jefe pendiente)
+/// o "consolidado" (plan confirmado por una solicitud de Buk con las mismas fechas).
+/// </summary>
 public sealed record VacationMatrizBlockDto(
-    int VacationId,
+    string Kind,
     DateOnly StartDate,
     DateOnly EndDate,
-    string Kind,
     decimal CalendarDays,
     decimal WorkingDays,
-    string Status);
+    /// <summary>Solicitud de Buk (null si el bloque es solo un plan).</summary>
+    int? VacationId = null,
+    /// <summary>Estado interno de Buk: submitted, pre_approved, approved…</summary>
+    string? BukStatus = null,
+    DateTime? RequestedAt = null,
+    DateTime? ApprovedAt = null,
+    bool RequiresAudit = false,
+    /// <summary>Plan del jefe en Planificacion_Vacaciones (null si el bloque solo viene de Buk).</summary>
+    int? PlanId = null,
+    string? PlanStatus = null,
+    string? PlanNotes = null,
+    string? PlanCreatedBy = null);
 
 /// <summary>Días con saldo FIFO que vencen en un mes de la ventana visible.</summary>
 public sealed record VacationMatrizExpirationDto(int Year, int Month, decimal Days);
@@ -129,8 +152,14 @@ public interface IVacationTeamService
     /// <summary>Resumen explicativo (datos + periodos + solicitudes) de un colaborador del equipo.</summary>
     Task<VacationColaboradorResumenDto?> GetColaboradorResumenAsync(int bossEmployeeId, int targetEmployeeId, bool unrestricted, CancellationToken cancellationToken = default);
 
-    /// <summary>Registra un plan de vacaciones (solicitud "pre_approved") para un colaborador del equipo.</summary>
-    Task<VacationPlanResult> PlanificarAsync(int bossEmployeeId, int targetEmployeeId, DateOnly start, DateOnly end, bool unrestricted, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Registra un plan del jefe en Planificacion_Vacaciones (estado "Pendiente") para un colaborador del equipo.
+    /// Pasa a "Confirmado" cuando Buk trae una solicitud del colaborador con las mismas fechas.
+    /// </summary>
+    Task<VacationPlanResult> PlanificarAsync(int bossEmployeeId, int targetEmployeeId, DateOnly start, DateOnly end, bool unrestricted, string? observaciones = null, string? createdByEmail = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Elimina un plan "Pendiente" de un colaborador del equipo. Los confirmados ya existen en Buk y no se eliminan.</summary>
+    Task<VacationPlanResult> EliminarPlanAsync(int bossEmployeeId, int planId, bool unrestricted, CancellationToken cancellationToken = default);
 
     /// <summary>Matriz de planificación: empleado × próximos 4 meses con bloques Buk/Plan/Consolidado y vencimientos.</summary>
     Task<VacationMatrizDto> GetMatrizAsync(int bossEmployeeId, bool unrestricted, CancellationToken cancellationToken = default);

@@ -312,6 +312,8 @@ public sealed class VacationTeamService(
         DateOnly start,
         DateOnly end,
         bool unrestricted,
+        string? observaciones = null,
+        string? createdByEmail = null,
         CancellationToken cancellationToken = default)
     {
         if (targetEmployeeId <= 0) return new VacationPlanResult(false, null, "Colaborador no válido.");
@@ -333,29 +335,56 @@ public sealed class VacationTeamService(
         if (employee is null) return new VacationPlanResult(false, null, "El colaborador no existe en IBR Perú.");
 
         var conflict = await db.VacationRequests.AnyAsync(request => request.EmployeeId == targetEmployeeId
-            && request.Status != "rejected" && request.StartDate <= end && request.EndDate >= start, cancellationToken);
-        if (conflict) return new VacationPlanResult(false, null, "El colaborador ya tiene una solicitud que cruza esas fechas.");
+            && request.Status != "rejected" && request.RequiereAuditoria != true
+            && request.StartDate <= end && request.EndDate >= start, cancellationToken);
+        if (conflict) return new VacationPlanResult(false, null, "El colaborador ya tiene una solicitud en Buk que cruza esas fechas.");
 
-        var plan = new VacationRequest
+        var planConflict = await db.VacationPlans.AnyAsync(plan => plan.EmployeeId == targetEmployeeId
+            && plan.FechaInicioPropuesta <= end && plan.FechaFinPropuesta >= start, cancellationToken);
+        if (planConflict) return new VacationPlanResult(false, null, "El colaborador ya tiene un plan que cruza esas fechas.");
+
+        var notes = string.IsNullOrWhiteSpace(observaciones) ? null : observaciones.Trim();
+        if (notes is { Length: > 500 }) return new VacationPlanResult(false, null, "Las observaciones no pueden superar 500 caracteres.");
+
+        var now = DateTime.Now;
+        var plan = new VacationPlan
         {
-            // Los planes del jefe usan VacationId negativo: los IDs de Buk son positivos y la PK no es identidad.
-            VacationId = (await db.VacationRequests
-                .Where(request => request.VacationId < 0)
-                .Select(request => (int?)request.VacationId)
-                .MinAsync(cancellationToken) ?? 0) - 1,
             EmployeeId = targetEmployeeId,
-            StartDate = start,
-            EndDate = end,
-            CalendarDays = end.DayNumber - start.DayNumber + 1,
-            WorkingDays = CountWorkingDays(start, end, employee.DiasLaboralesSemana),
-            Status = "pre_approved",
-            RequestedAt = DateTime.Now,
-            CreatedAt = DateTime.Now
+            FechaInicioPropuesta = start,
+            FechaFinPropuesta = end,
+            DiasPropuestos = CountWorkingDays(start, end, employee.DiasLaboralesSemana),
+            Estado = VacationPlanStatus.Pendiente,
+            Observaciones = notes,
+            CreatedAt = now,
+            UpdatedAt = now,
+            CreatedByEmail = string.IsNullOrWhiteSpace(createdByEmail) ? null : createdByEmail.Trim(),
+            CreatedByEmployeeId = bossEmployeeId > 0 ? bossEmployeeId : null
         };
-        db.VacationRequests.Add(plan);
+        db.VacationPlans.Add(plan);
         await db.SaveChangesAsync(cancellationToken);
 
-        return new VacationPlanResult(true, plan.VacationId);
+        return new VacationPlanResult(true, plan.Id);
+    }
+
+    public async Task<VacationPlanResult> EliminarPlanAsync(int bossEmployeeId, int planId, bool unrestricted, CancellationToken cancellationToken = default)
+    {
+        var plan = await db.VacationPlans.FirstOrDefaultAsync(candidate => candidate.Id == planId, cancellationToken);
+        if (plan is null) return new VacationPlanResult(false, null, "El plan ya no existe.");
+
+        if (!unrestricted)
+        {
+            var employeeIds = await GetTeamEmployeeIdsAsync(bossEmployeeId, cancellationToken);
+            if (!employeeIds.Contains(plan.EmployeeId)) return new VacationPlanResult(false, null, "El colaborador no está en tu equipo.");
+        }
+
+        if (plan.Estado == VacationPlanStatus.Confirmado)
+        {
+            return new VacationPlanResult(false, null, "El plan ya está confirmado en Buk; no se puede eliminar desde el portal.");
+        }
+
+        db.VacationPlans.Remove(plan);
+        await db.SaveChangesAsync(cancellationToken);
+        return new VacationPlanResult(true, planId);
     }
 
     private static decimal CountWorkingDays(DateOnly start, DateOnly end, int? daysPerWeek)
@@ -388,12 +417,21 @@ public sealed class VacationTeamService(
         if (balances.Count == 0) return new VacationMatrizDto(months, []);
 
         var employeeIds = balances.Select(balance => balance.EmployeeId).ToArray();
+        // Solicitudes reales de Buk (IDs positivos) vigentes desde el inicio de la ventana: se pintan las que caen en ella
+        // y todas sirven para confirmar planes, aunque el plan sea posterior a la ventana visible.
         var requests = await db.VacationRequests
             .AsNoTracking()
             .Where(request => employeeIds.Contains(request.EmployeeId)
-                && (request.Status == "approved" || request.Status == "pre_approved")
-                && request.StartDate <= windowEnd && request.EndDate >= firstMonth)
+                && request.VacationId > 0
+                && request.Status != "rejected"
+                && request.EndDate >= firstMonth)
             .ToListAsync(cancellationToken);
+
+        var plans = await db.VacationPlans
+            .Include(plan => plan.CreatedByEmployee)
+            .Where(plan => employeeIds.Contains(plan.EmployeeId) && plan.FechaFinPropuesta >= firstMonth)
+            .ToListAsync(cancellationToken);
+        await ReconcilePlansAsync(plans, requests, cancellationToken);
 
         var allPeriods = await db.VacationPeriods
             .AsNoTracking()
@@ -414,19 +452,9 @@ public sealed class VacationTeamService(
         var rows = new List<VacationMatrizRowDto>();
         foreach (var balance in balances)
         {
-            var blocks = requests
-                .Where(request => request.EmployeeId == balance.EmployeeId)
-                .GroupBy(request => (request.StartDate, request.EndDate))
-                .Select(group =>
-                {
-                    var hasBuk = group.Any(request => request.VacationId > 0);
-                    var hasPlan = group.Any(request => request.VacationId <= 0);
-                    var kind = hasBuk && hasPlan ? "consolidado" : hasPlan ? "plan" : "buk";
-                    var source = group.OrderBy(request => request.VacationId <= 0 ? 1 : 0).First();
-                    return new VacationMatrizBlockDto(source.VacationId, source.StartDate, source.EndDate, kind, source.CalendarDays, source.WorkingDays, source.Status);
-                })
-                .OrderBy(block => block.StartDate)
-                .ToList();
+            var blocks = BuildBlocks(
+                requests.Where(request => request.EmployeeId == balance.EmployeeId && request.StartDate <= windowEnd).ToList(),
+                plans.Where(plan => plan.EmployeeId == balance.EmployeeId && plan.FechaInicioPropuesta <= windowEnd).ToList());
 
             var employeePeriods = periodsByEmployee.GetValueOrDefault(balance.EmployeeId, []);
             var pool = consumedByEmployee.GetValueOrDefault(balance.EmployeeId)
@@ -457,6 +485,80 @@ public sealed class VacationTeamService(
 
         rows = [.. rows.OrderByDescending(row => row.IsBoss).ThenBy(row => row.FullName, StringComparer.CurrentCultureIgnoreCase)];
         return new VacationMatrizDto(months, rows);
+    }
+
+    /// <summary>
+    /// Un plan queda "Confirmado" cuando Buk tiene una solicitud (no rechazada) del mismo colaborador con las mismas fechas:
+    /// el colaborador la registró después del plan. Si esa solicitud desaparece o se rechaza, el plan vuelve a "Pendiente".
+    /// </summary>
+    private async Task ReconcilePlansAsync(List<VacationPlan> plans, List<VacationRequest> bukRequests, CancellationToken cancellationToken)
+    {
+        var changed = false;
+        foreach (var plan in plans)
+        {
+            var confirmed = bukRequests.Any(request => MatchesPlan(request, plan));
+            var target = confirmed ? VacationPlanStatus.Confirmado : VacationPlanStatus.Pendiente;
+            if (plan.Estado == target) continue;
+
+            plan.Estado = target;
+            plan.UpdatedAt = DateTime.Now;
+            changed = true;
+        }
+
+        if (changed) await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static bool MatchesPlan(VacationRequest request, VacationPlan plan) =>
+        request.EmployeeId == plan.EmployeeId
+        && request.StartDate == plan.FechaInicioPropuesta
+        && request.EndDate == plan.FechaFinPropuesta
+        && request.RequiereAuditoria != true;
+
+    private static List<VacationMatrizBlockDto> BuildBlocks(List<VacationRequest> bukRequests, List<VacationPlan> plans)
+    {
+        var blocks = new List<VacationMatrizBlockDto>();
+        var matched = new HashSet<int>();
+
+        foreach (var plan in plans)
+        {
+            var request = plan.Estado == VacationPlanStatus.Confirmado
+                ? bukRequests.FirstOrDefault(candidate => !matched.Contains(candidate.VacationId) && MatchesPlan(candidate, plan))
+                : null;
+            if (request is not null) matched.Add(request.VacationId);
+
+            var calendarDays = plan.FechaFinPropuesta.DayNumber - plan.FechaInicioPropuesta.DayNumber + 1;
+            blocks.Add(new VacationMatrizBlockDto(
+                request is null ? "plan" : "consolidado",
+                plan.FechaInicioPropuesta,
+                plan.FechaFinPropuesta,
+                request?.CalendarDays ?? calendarDays,
+                request?.WorkingDays ?? plan.DiasPropuestos,
+                request?.VacationId,
+                request?.Status,
+                request?.RequestedAt,
+                request?.ApprovedAt,
+                request?.RequiereAuditoria == true,
+                plan.Id,
+                plan.Estado,
+                plan.Observaciones,
+                plan.CreatedByEmployee?.FullName ?? plan.CreatedByEmail));
+        }
+
+        blocks.AddRange(bukRequests
+            .Where(request => !matched.Contains(request.VacationId))
+            .Select(request => new VacationMatrizBlockDto(
+                "buk",
+                request.StartDate,
+                request.EndDate,
+                request.CalendarDays,
+                request.WorkingDays,
+                request.VacationId,
+                request.Status,
+                request.RequestedAt,
+                request.ApprovedAt,
+                request.RequiereAuditoria == true)));
+
+        return [.. blocks.OrderBy(block => block.StartDate)];
     }
 
     private async Task<List<Employee>> GetTeamEmployeesAsync(int bossEmployeeId, bool unrestricted, CancellationToken cancellationToken)    {

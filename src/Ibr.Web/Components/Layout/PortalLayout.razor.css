@@ -50,7 +50,7 @@
     .portal-shell--nav-collapsed .portal-nav__caption,
     .portal-shell--nav-collapsed .portal-nav__search,
     .portal-shell--nav-collapsed .portal-nav__link--soon em,
-    .portal-shell--nav-collapsed .portal-nav ::deep .portal-nav__link span { display: none; }
+    .portal-shell--nav-collapsed .portal-nav ::deep .portal-nav__link span:not(.rz-icon) { display: none; }
     .portal-shell--nav-collapsed .portal-sidebar__portal { justify-content: center; padding: .6rem .4rem; }
     .portal-shell--nav-collapsed .portal-nav ::deep .portal-nav__link { justify-content: center; }
     .portal-shell--nav-collapsed .portal-sidebar__user { display: flex; justify-content: center; padding-inline: 0; }

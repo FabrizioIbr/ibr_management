@@ -139,14 +139,22 @@
             else
             {
                 <div class="ibr-card ibr-card--flush">
-                    <div class="ibr-card__toolbar">
-                        <span class="ibr-card__toolbar-meta">@matriz.Rows.Count colaboradores · @(matriz.Months[0].Label) a @(matriz.Months[^1].Label)</span>
-                        <div class="ibr-matrix__legend">
-                            <span class="ibr-block ibr-block--buk">Buk</span>
-                            <span class="ibr-block ibr-block--plan">Plan</span>
-                            <span class="ibr-block ibr-block--consolidado">✓ Confirmado</span>
-                            <span class="ibr-block ibr-block--vencen">Vencen</span>
+                    <div class="ibr-card__toolbar ibr-matrix__toolbar">
+                        <div class="ibr-matrix__filters">
+                            <RadzenTextBox @bind-Value="matrixSearch" Immediate="true" Placeholder="Buscar colaborador…" aria-label="Buscar colaborador en la matriz" style="width:260px;max-width:100%" />
+                            <div class="ibr-matrix__toggle">
+                                <RadzenSwitch @bind-Value="onlyAlerts" Name="matrixOnlyAlerts" />
+                                <RadzenLabel Text="Solo con días por vencer sin plan" Component="matrixOnlyAlerts" />
+                            </div>
                         </div>
+                        <span class="ibr-card__toolbar-meta">@MatrixRows.Count de @matriz.Rows.Count colaboradores · @(matriz.Months[0].Label) a @(matriz.Months[^1].Label)</span>
+                    </div>
+                    <div class="ibr-matrix__legend" aria-label="Leyenda">
+                        <span class="ibr-matrix__legend-item"><span class="ibr-swatch ibr-swatch--buk"></span>Registrada en Buk</span>
+                        <span class="ibr-matrix__legend-item"><span class="ibr-swatch ibr-swatch--plan"></span>Plan del jefe (pendiente en Buk)</span>
+                        <span class="ibr-matrix__legend-item"><span class="ibr-swatch ibr-swatch--consolidado"></span>Confirmado (plan = Buk)</span>
+                        <span class="ibr-matrix__legend-item"><span class="ibr-swatch ibr-swatch--vencen"></span>Días que vencen sin plan</span>
+                        <span class="ibr-matrix__legend-hint"><RadzenIcon Icon="info" />Pasa el mouse sobre un bloque para ver su estado en Buk · «Planificar» en cada celda crea un plan</span>
                     </div>
                     <div class="ibr-matrix-scroll">
                         <table class="ibr-matrix">
@@ -154,59 +162,132 @@
                                 <tr>
                                     <th class="ibr-matrix__fix ibr-matrix__fix--name">Colaborador</th>
                                     <th class="ibr-matrix__fix ibr-matrix__fix--saldo">Saldo</th>
-                                    <th class="ibr-matrix__fix ibr-matrix__fix--vence">Vencimiento</th>
+                                    <th class="ibr-matrix__fix ibr-matrix__fix--vence">Próx. vencimiento</th>
                                     @foreach (var month in Months)
                                     {
                                         var alerts = MonthAlerts(month);
-                                        <th class="ibr-matrix__month">
-                                            <div class="ibr-matrix__month-label">@month.Label</div>
+                                        <th class="ibr-matrix__month @(IsCurrent(month) ? "is-current" : null)">
+                                            <div class="ibr-matrix__month-head">
+                                                <span class="ibr-matrix__month-label">@month.Label</span>
+                                                @if (IsCurrent(month))
+                                                {
+                                                    <span class="ibr-matrix__current">Mes actual</span>
+                                                }
+                                            </div>
                                             @if (alerts > 0)
                                             {
-                                                <span class="ibr-matrix__alert" title="@($"{alerts} colaboradores con días por vencer sin planificación este mes")">⚠️ @alerts</span>
+                                                <span class="ibr-matrix__alert" title="@($"{alerts} colaboradores con días por vencer sin planificación este mes")"><RadzenIcon Icon="warning" />@alerts sin plan</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="ibr-matrix__ok"><RadzenIcon Icon="check" />Sin alertas</span>
                                             }
                                         </th>
                                     }
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var row in matriz.Rows)
+                                @if (MatrixRows.Count == 0)
                                 {
-                                    <tr class="@(row.IsBoss ? "ibr-matrix__row--boss" : null)">
+                                    <tr>
+                                        <td class="ibr-matrix__empty" colspan="@(Months.Count + 3)">
+                                            <div class="ibr-empty">
+                                                <RadzenIcon Icon="search_off" />
+                                                <strong>Sin resultados</strong>
+                                                <span>Ningún colaborador coincide con la búsqueda o el filtro.</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                                @foreach (var row in MatrixRows)
+                                {
+                                    <tr class="@RowClass(row)">
                                         <td class="ibr-matrix__fix ibr-matrix__fix--name">
-                                            <span class="ibr-matrix__name">@row.FullName</span>
-                                            @if (row.IsBoss)
+                                            <div class="ibr-matrix__who">
+                                                <Avatar Name="@row.FullName" />
+                                                <div class="ibr-matrix__who-text">
+                                                    <div class="ibr-matrix__name-line">
+                                                        <span class="ibr-matrix__name" title="@row.FullName">@row.FullName</span>
+                                                        @if (row.IsBoss)
+                                                        {
+                                                            <em class="ibr-matrix__boss">Tú</em>
+                                                        }
+                                                        @if (row.HasActiveRequests)
+                                                        {
+                                                            <span class="ibr-active-check" title="Tiene solicitudes en curso"><RadzenIcon Icon="check_circle" /></span>
+                                                        }
+                                                        @if (row.RequiresAudit)
+                                                        {
+                                                            <span class="ibr-audit-warning" title="Tiene una solicitud borrada en Buk: requiere auditoría"><RadzenIcon Icon="error" /></span>
+                                                        }
+                                                    </div>
+                                                    <span class="ibr-matrix__email" title="@row.Email">@row.Email</span>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="ibr-matrix__fix ibr-matrix__fix--saldo">
+                                            <span class="ibr-matrix__saldo">@VacationUi.Days(row.DaysPending)</span>
+                                            <span class="ibr-matrix__unit">días</span>
+                                        </td>
+                                        <td class="ibr-matrix__fix ibr-matrix__fix--vence">
+                                            <span class="ibr-matrix__date">@VacationUi.Date(row.NextExpiration)</span>
+                                            @if (row.NextExpiration is not null)
                                             {
-                                                <em class="ibr-matrix__boss">(Tú)</em>
-                                            }
-                                            @if (row.HasActiveRequests)
-                                            {
-                                                <span class="ibr-active-check" title="Tiene solicitudes en curso"><RadzenIcon Icon="check_circle" /></span>
-                                            }
-                                            @if (row.RequiresAudit)
-                                            {
-                                                <span class="ibr-audit-warning" title="Tiene una solicitud borrada en Buk: requiere auditoría"><RadzenIcon Icon="error" /></span>
+                                                var (text, tone) = ExpiresIn(row.NextExpiration.Value);
+                                                <span class="ibr-matrix__relative ibr-matrix__relative--@tone">@text</span>
                                             }
                                         </td>
-                                        <td class="ibr-matrix__fix ibr-matrix__fix--saldo"><strong>@VacationUi.Days(row.DaysPending)</strong></td>
-                                        <td class="ibr-matrix__fix ibr-matrix__fix--vence">@VacationUi.Date(row.NextExpiration)</td>
                                         @foreach (var month in Months)
                                         {
                                             var blocks = BlocksFor(row, month);
                                             var expiring = ExpirationDays(row, month);
-                                            <td class="ibr-matrix__month">
+                                            <td class="ibr-matrix__month @(IsCurrent(month) ? "is-current" : null)">
                                                 @foreach (var block in blocks)
                                                 {
-                                                    <div class="ibr-block ibr-block--@block.Kind" title="@BlockTooltip(block)">@BlockText(block)</div>
+                                                    <MatrixBlock @key="@($"{block.Kind}-{block.PlanId}-{block.VacationId}")" Block="@block" OnDeletePlan="@(item => DeletePlanAsync(row, item))" />
                                                 }
-                                                @if (blocks.Count == 0 && expiring > 0)
+                                                @if (expiring > 0)
                                                 {
-                                                    <div class="ibr-block ibr-block--vencen" title="Días que vencen este mes sin plan ni solicitud">@VacationUi.Days(expiring)d vencen</div>
+                                                    if (blocks.Count == 0)
+                                                    {
+                                                        <div class="ibr-block ibr-block--vencen" title="Días que vencen este mes sin plan ni solicitud">
+                                                            <span class="ibr-block__kind"><RadzenIcon Icon="warning" />Vencen @VacationUi.Days(expiring) d</span>
+                                                            <span class="ibr-block__dates">Sin planificación</span>
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="ibr-matrix__note" title="Días con saldo FIFO que vencen este mes">
+                                                            <RadzenIcon Icon="schedule" />@VacationUi.Days(expiring) d vencen este mes
+                                                        </div>
+                                                    }
                                                 }
+                                                <button type="button" class="ibr-matrix__add" @onclick="() => OpenPlanAsync(row, month)"
+                                                        title="@($"Planificar vacaciones de {row.FullName} en {month.Label}")">
+                                                    <RadzenIcon Icon="add" />Planificar
+                                                </button>
                                             </td>
                                         }
                                     </tr>
                                 }
                             </tbody>
+                            @if (MatrixRows.Count > 0)
+                            {
+                                <tfoot>
+                                    <tr>
+                                        <td class="ibr-matrix__fix ibr-matrix__fix--foot" colspan="3">Resumen del mes</td>
+                                        @foreach (var month in Months)
+                                        {
+                                            var planned = MatrixRows.Count(row => BlocksFor(row, month).Count > 0);
+                                            var expiring = MatrixRows.Sum(row => ExpirationDays(row, month));
+                                            <td class="ibr-matrix__month @(IsCurrent(month) ? "is-current" : null)">
+                                                <div class="ibr-matrix__sum"><strong>@planned</strong> con vacaciones</div>
+                                                <div class="ibr-matrix__sum @(expiring > 0 ? "ibr-matrix__sum--danger" : null)"><strong>@VacationUi.Days(expiring)</strong> d vencen</div>
+                                            </td>
+                                        }
+                                    </tr>
+                                </tfoot>
+                            }
                         </table>
                     </div>
                 </div>
@@ -234,6 +315,8 @@
     private bool loading = true;
     private string searchTerm = string.Empty;
     private string riskFilter = "all";
+    private string matrixSearch = string.Empty;
+    private bool onlyAlerts;
     private int bossEmployeeId;
 
     private static readonly MarkupString UserScanIcon = new(
@@ -273,13 +356,14 @@
         .Where(MatchesSearch)
         .ToList();
 
-    private bool MatchesSearch(VacationBalanceDto balance)
+    private bool MatchesSearch(VacationBalanceDto balance) => MatchesTerm($"{balance.FullName} {balance.Email}", searchTerm);
+
+    private static bool MatchesTerm(string haystack, string term)
     {
-        if (string.IsNullOrWhiteSpace(searchTerm)) return true;
-        var haystack = $"{balance.FullName} {balance.Email}";
-        return searchTerm
+        if (string.IsNullOrWhiteSpace(term)) return true;
+        return term
             .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .All(term => haystack.Contains(term, StringComparison.OrdinalIgnoreCase));
+            .All(part => haystack.Contains(part, StringComparison.OrdinalIgnoreCase));
     }
 
     private void HighlightRisk(RowRenderEventArgs<VacationBalanceDto> args)
@@ -334,27 +418,81 @@
         row.Expirations.Where(expiration => expiration.Year == month.Year && expiration.Month == month.Month)
             .Sum(expiration => expiration.Days);
 
-    private int MonthAlerts(VacationMatrizMonthDto month) => matriz is null ? 0 : matriz.Rows.Count(row =>
-        ExpirationDays(row, month) > 0 && BlocksFor(row, month).Count == 0);
+    private IReadOnlyList<VacationMatrizRowDto> MatrixRows => (matriz?.Rows ?? [])
+        .Where(row => !onlyAlerts || Months.Any(month => HasAlert(row, month)))
+        .Where(row => MatchesTerm($"{row.FullName} {row.Email}", matrixSearch))
+        .ToList();
 
-    private static string BlockText(VacationMatrizBlockDto block) => block.Kind switch
+    private static bool HasAlert(VacationMatrizRowDto row, VacationMatrizMonthDto month) =>
+        ExpirationDays(row, month) > 0 && BlocksFor(row, month).Count == 0;
+
+    private int MonthAlerts(VacationMatrizMonthDto month) => MatrixRows.Count(row => HasAlert(row, month));
+
+    private static bool IsCurrent(VacationMatrizMonthDto month) =>
+        month.Year == DateTime.Today.Year && month.Month == DateTime.Today.Month;
+
+    private string? RowClass(VacationMatrizRowDto row)
     {
-        "consolidado" => "✓ Confirmado",
-        "plan" => $"Plan: {Short(block.StartDate)}–{Short(block.EndDate)}",
-        _ => $"Buk: {Short(block.StartDate)}–{Short(block.EndDate)}"
-    };
+        var classes = new List<string>(2);
+        if (row.IsBoss) classes.Add("ibr-matrix__row--boss");
+        if (Months.Any(month => HasAlert(row, month))) classes.Add("ibr-matrix__row--alert");
+        return classes.Count == 0 ? null : string.Join(' ', classes);
+    }
 
-    private static string Short(DateOnly value) => value.ToString("dd/MM", CultureInfo.InvariantCulture);
-
-    private static string BlockTooltip(VacationMatrizBlockDto block)
+    private static (string Text, string Tone) ExpiresIn(DateOnly date)
     {
-        var origin = block.Kind switch
+        var days = date.DayNumber - DateOnly.FromDateTime(DateTime.Today).DayNumber;
+        return days switch
         {
-            "plan" => "Plan del jefe · pendiente de registrar en Buk",
-            "consolidado" => "Plan confirmado: coincide con la solicitud de Buk",
-            _ => "Solicitud sincronizada desde Buk"
+            < 0 => ($"Venció hace {-days} d", "danger"),
+            0 => ("Vence hoy", "danger"),
+            <= 30 => ($"En {days} días", "orange"),
+            <= 60 => ($"En {days} días", "warning"),
+            _ => ($"En {days / 30} meses", "muted")
         };
+    }
 
-        return $"{origin} · {VacationUi.Days(block.CalendarDays)} días calendario ({VacationUi.Days(block.WorkingDays)} háb.)";
+    private async Task OpenPlanAsync(VacationMatrizRowDto row, VacationMatrizMonthDto month)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var (monthStart, _) = MonthRange(month);
+        var saved = await DialogService.OpenAsync<VacationPlanDialog>(
+            $"Planificar vacaciones · {row.FullName}",
+            new Dictionary<string, object?>
+            {
+                [nameof(VacationPlanDialog.EmployeeId)] = row.EmployeeId,
+                [nameof(VacationPlanDialog.EmployeeName)] = row.FullName,
+                [nameof(VacationPlanDialog.BossEmployeeId)] = bossEmployeeId,
+                [nameof(VacationPlanDialog.InitialStart)] = monthStart > today ? monthStart : today
+            },
+            new DialogOptions { Width = "min(480px, 94vw)", ShowClose = true, Draggable = true, CssClass = "ibr-dialog" });
+
+        if (saved is true)
+        {
+            NotificationService.Notify(NotificationSeverity.Success, "Plan registrado", $"Vacaciones de {row.FullName} planificadas en estado Pendiente.");
+            await LoadAsync();
+        }
+    }
+
+    private async Task DeletePlanAsync(VacationMatrizRowDto row, VacationMatrizBlockDto block)
+    {
+        if (block.PlanId is not { } planId) return;
+
+        var confirmed = await DialogService.Confirm(
+            $"¿Eliminar el plan de {row.FullName} del {VacationUi.Date(block.StartDate)} al {VacationUi.Date(block.EndDate)}?",
+            "Eliminar plan",
+            new ConfirmOptions { OkButtonText = "Eliminar", CancelButtonText = "Cancelar", CssClass = "ibr-dialog" });
+        if (confirmed is not true) return;
+
+        var result = await TeamService.EliminarPlanAsync(bossEmployeeId, planId, unrestricted: false);
+        if (result.Succeeded)
+        {
+            NotificationService.Notify(NotificationSeverity.Success, "Plan eliminado", $"Se eliminó el plan de {row.FullName}.");
+            await LoadAsync();
+        }
+        else
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "No se pudo eliminar", result.Error ?? "Inténtalo nuevamente.");
+        }
     }
 }

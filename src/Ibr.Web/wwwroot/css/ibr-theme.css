@@ -20,6 +20,16 @@
     --ibr-text-muted: #64748B;
     --ibr-text-subtle: #94A3B8;
 
+    /* Semáforo (estados y riesgo) */
+    --ibr-success: #15803D;
+    --ibr-success-soft: #ECFDF3;
+    --ibr-warning: #A16207;
+    --ibr-warning-soft: #FEF9C3;
+    --ibr-orange: #C2410C;
+    --ibr-orange-soft: #FFF7ED;
+    --ibr-danger: #B91C1C;
+    --ibr-danger-soft: #FEF2F2;
+
     --ibr-radius: 14px;
     --ibr-radius-sm: 10px;
     --ibr-shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 4px 16px rgba(16, 24, 40, .04);
@@ -86,6 +96,8 @@ body {
 .ibr-stat__icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; background: var(--ibr-blue-soft); color: var(--ibr-blue); flex: 0 0 auto; }
 .ibr-stat__icon--success { background: #ECFDF3; color: #15803D; }
 .ibr-stat__icon--muted { background: #F1F5F9; color: var(--ibr-text-muted); }
+.ibr-stat__icon--warning { background: var(--ibr-warning-soft); color: var(--ibr-warning); }
+.ibr-stat__icon--danger { background: var(--ibr-danger-soft); color: var(--ibr-danger); }
 .ibr-stat__value { color: var(--ibr-text); font-size: 1.45rem; font-weight: 750; line-height: 1.1; }
 .ibr-stat__label { color: var(--ibr-text-muted); font-size: .78rem; font-weight: 600; }
 
@@ -316,3 +328,38 @@ body {
 .ibr-card-grid > .ibr-card { min-width: 0; }
 .ibr-top-item__meta { flex: 1 1 auto; min-width: 0; }
 .ibr-top-item__name { flex: 1 1 auto; min-width: 0; }
+
+/* ---------- Matriz de planificación: bloques (MatrixBlock y celdas "Vencen") ---------- */
+.ibr-block { display: grid; gap: .1rem; border-radius: 8px; padding: .3rem .5rem .3rem .55rem; margin-block: .2rem; max-width: 170px; border: 1px solid transparent; border-left-width: 3px; outline: none; }
+.ibr-block:focus-visible { box-shadow: 0 0 0 3px rgba(21, 37, 240, .18); }
+.ibr-block.is-clickable { cursor: pointer; }
+.ibr-block.is-clickable:hover { filter: brightness(.97); }
+.ibr-block__kind { display: flex; align-items: center; gap: .25rem; font-size: .7rem; font-weight: 750; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ibr-block__kind .rz-icon { font-size: .85rem; flex: 0 0 auto; }
+.ibr-block__dates { font-size: .68rem; font-weight: 600; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ibr-block--buk { background: #F1F5F9; border-color: #CBD5E1; border-left-color: #64748B; color: #334155; }
+.ibr-block--plan { background: var(--ibr-blue-soft); border-color: #C7CCFB; border-style: dashed; border-left-style: solid; border-left-color: var(--ibr-blue); color: var(--ibr-blue); }
+.ibr-block--consolidado { background: var(--ibr-success-soft); border-color: #BBF7D0; border-left-color: var(--ibr-success); color: var(--ibr-success); }
+.ibr-block--vencen { background: var(--ibr-danger-soft); border-color: #FECACA; border-left-color: var(--ibr-danger); color: var(--ibr-danger); }
+.ibr-block--audit { border-left-color: var(--ibr-danger); }
+
+/* ---------- Tooltip claro (TooltipService con CssClass = "ibr-tooltip") ---------- */
+.ibr-tooltip {
+    --rz-tooltip-background-color: var(--ibr-surface);
+    --rz-tooltip-color: var(--ibr-text);
+    --rz-tooltip-padding: .75rem .9rem;
+    --rz-tooltip-border-radius: var(--ibr-radius-sm);
+    --rz-tooltip-shadow: 0 10px 30px rgba(16, 24, 40, .16);
+    --rz-tooltip-font-size: .8rem;
+}
+.ibr-tooltip .rz-tooltip-content { border: 1px solid var(--ibr-border); max-width: 300px; }
+.ibr-tip { display: grid; gap: .45rem; }
+.ibr-tip__title { display: flex; align-items: center; gap: .35rem; color: var(--ibr-text); font-size: .84rem; font-weight: 750; }
+.ibr-tip__title .rz-icon { font-size: 1rem; color: var(--ibr-text-muted); }
+.ibr-tip__dates { color: var(--ibr-text-muted); font-size: .76rem; font-weight: 650; }
+.ibr-tip__list { display: grid; grid-template-columns: auto 1fr; gap: .3rem .75rem; margin: 0; align-items: center; }
+.ibr-tip__list dt { color: var(--ibr-text-subtle); font-size: .72rem; font-weight: 650; }
+.ibr-tip__list dd { margin: 0; color: var(--ibr-text); font-size: .78rem; overflow-wrap: anywhere; }
+.ibr-tip__warn { display: flex; align-items: center; gap: .35rem; padding: .4rem .55rem; border-radius: 8px; background: var(--ibr-danger-soft); color: var(--ibr-danger); font-size: .74rem; font-weight: 650; }
+.ibr-tip__warn .rz-icon { font-size: .95rem; }
+.ibr-tip__hint { padding-top: .4rem; border-top: 1px solid var(--ibr-border); color: var(--ibr-text-muted); font-size: .74rem; line-height: 1.45; }

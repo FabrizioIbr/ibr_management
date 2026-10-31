@@ -1,0 +1,122 @@
+@* Bloque de la matriz de planificación (Buk / Plan / Confirmado). Al pasar el mouse muestra el detalle con el estado de Buk;
+   un plan pendiente se puede eliminar con clic. *@
+@using System.Globalization
+@using Ibr.Application.Vacations
+@inject TooltipService TooltipService
+@implements IDisposable
+
+<div @ref="element" class="ibr-block ibr-block--@Block.Kind @(Block.RequiresAudit ? "ibr-block--audit" : null) @(CanDelete ? "is-clickable" : null)"
+     tabindex="0" role="@(CanDelete ? "button" : null)" aria-label="@AriaLabel"
+     @onmouseenter="Show" @onmouseleave="Hide" @onfocus="Show" @onblur="Hide" @onclick="ClickAsync">
+    <span class="ibr-block__kind"><RadzenIcon Icon="@Icon" />@Label</span>
+    <span class="ibr-block__dates">@Short(Block.StartDate) – @Short(Block.EndDate) · @VacationUi.Days(Block.CalendarDays) d</span>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public VacationMatrizBlockDto Block { get; set; } = null!;
+    /// <summary>Clic en un plan pendiente (para eliminarlo). Sin delegado el bloque es solo informativo.</summary>
+    [Parameter] public EventCallback<VacationMatrizBlockDto> OnDeletePlan { get; set; }
+
+    private ElementReference element;
+    private bool open;
+
+    private bool CanDelete => Block is { Kind: "plan", PlanId: not null } && OnDeletePlan.HasDelegate;
+
+    private string Label => Block.Kind switch
+    {
+        "consolidado" => "Confirmado",
+        "plan" => "Plan",
+        _ => Block.BukStatus is null ? "Buk" : $"Buk · {VacationUi.BukStatus(Block.BukStatus).Label}"
+    };
+
+    private string Icon => Block.Kind switch
+    {
+        "consolidado" => "verified",
+        "plan" => "edit_calendar",
+        _ => Block.RequiresAudit ? "error" : "sync"
+    };
+
+    private string AriaLabel => $"{Label}: {Short(Block.StartDate)} a {Short(Block.EndDate)}" + (CanDelete ? ". Clic para eliminar el plan." : string.Empty);
+
+    private static string Short(DateOnly value) => value.ToString("dd/MM", CultureInfo.InvariantCulture);
+
+    private static string Long(DateOnly value) => value.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+
+    private static string Stamp(DateTime value) => value.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture);
+
+    private void Show()
+    {
+        open = true;
+        TooltipService.Open(element, _ => @<div class="ibr-tip">
+            <div class="ibr-tip__title"><RadzenIcon Icon="@Icon" />@Title</div>
+            <div class="ibr-tip__dates">@Long(Block.StartDate) – @Long(Block.EndDate)</div>
+            <dl class="ibr-tip__list">
+                <dt>Días</dt>
+                <dd>@VacationUi.Days(Block.CalendarDays) calendario · @VacationUi.Days(Block.WorkingDays) hábiles</dd>
+                @if (Block.VacationId is { } vacationId)
+                {
+                    <dt>Estado en Buk</dt>
+                    <dd><span class="ibr-badge ibr-badge--@VacationUi.BukStatus(Block.BukStatus).BadgeClass">@VacationUi.BukStatus(Block.BukStatus).Label</span></dd>
+                    <dt>Solicitud Buk</dt>
+                    <dd>#@vacationId</dd>
+                    @if (Block.RequestedAt is { } requested)
+                    {
+                        <dt>Solicitada</dt>
+                        <dd>@Stamp(requested)</dd>
+                    }
+                    @if (Block.ApprovedAt is { } approved)
+                    {
+                        <dt>Aprobada</dt>
+                        <dd>@Stamp(approved)</dd>
+                    }
+                }
+                @if (Block.PlanId is not null)
+                {
+                    <dt>Plan</dt>
+                    <dd><span class="ibr-badge ibr-badge--@(Block.PlanStatus == VacationPlanStatus.Confirmado ? "success" : "info")">@Block.PlanStatus</span></dd>
+                    @if (!string.IsNullOrWhiteSpace(Block.PlanCreatedBy))
+                    {
+                        <dt>Planificado por</dt>
+                        <dd>@Block.PlanCreatedBy</dd>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(Block.PlanNotes))
+                    {
+                        <dt>Observaciones</dt>
+                        <dd>@Block.PlanNotes</dd>
+                    }
+                }
+            </dl>
+            @if (Block.RequiresAudit)
+            {
+                <div class="ibr-tip__warn"><RadzenIcon Icon="error" />La solicitud fue borrada en Buk: requiere auditoría.</div>
+            }
+            @if (Block.Kind == "plan")
+            {
+                <div class="ibr-tip__hint">Pendiente de registrar en Buk. Se confirmará cuando el colaborador cree la solicitud con estas mismas fechas.@(CanDelete ? " Clic para eliminar el plan." : null)</div>
+            }
+        </div>, new TooltipOptions { Position = TooltipPosition.Top, Duration = null, CssClass = "ibr-tooltip" });
+    }
+
+    private string Title => Block.Kind switch
+    {
+        "consolidado" => "Plan confirmado en Buk",
+        "plan" => "Plan del jefe",
+        _ => "Solicitud sincronizada desde Buk"
+    };
+
+    private void Hide()
+    {
+        if (!open) return;
+        open = false;
+        TooltipService.Close();
+    }
+
+    private async Task ClickAsync()
+    {
+        if (!CanDelete) return;
+        Hide();
+        await OnDeletePlan.InvokeAsync(Block);
+    }
+
+    public void Dispose() => Hide();
+}
